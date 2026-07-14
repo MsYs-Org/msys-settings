@@ -1,6 +1,13 @@
 # MSYS Settings
 
-## 0.2.11 compact, scrollable Settings pages
+## 0.2.13 radio scan refresh correctness
+
+Wi-Fi and Bluetooth scan completion now refreshes only the radio page that
+started the request.  Leaving a page before its delayed refresh fires no
+longer updates another page, and Bluetooth results refresh automatically just
+like Wi-Fi results.
+
+## 0.2.12 compact, scrollable Settings pages
 
 The role, HAL, applications, and updates pages now use the same touch-drag
 surface as the existing display and radio pages.  HAL, Wi-Fi, and Bluetooth

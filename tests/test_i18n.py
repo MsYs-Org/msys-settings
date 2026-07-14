@@ -94,6 +94,16 @@ class SettingsI18nTests(unittest.TestCase):
         self.assertNotIn("service", document)
         self.assertNotIn("role", document)
 
+    def test_english_text_has_no_known_mojibake_symbols(self) -> None:
+        document = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        english = {
+            **document["messages"]["en-US"],
+            **ENGLISH_FALLBACK,
+        }
+        for key, value in english.items():
+            for damaged in ("路", "鈥", "鈫", "掳"):
+                self.assertNotIn(damaged, value, key)
+
     def test_static_ui_translation_keys_have_catalog_and_recovery_entries(self) -> None:
         keys: set[str] = set()
         key_prefixes = (

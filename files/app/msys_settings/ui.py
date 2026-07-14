@@ -1715,9 +1715,14 @@ class RadioPage(BasePage):
             if action == "scan":
                 self.operation_notice.set(self.app.tr("radio.scan_refreshing"))
                 self.operation_notice_label.configure(style="Muted.TLabel")
+                page_key = self._page_key()
                 self.app.root.after(
                     1200,
-                    lambda: self._delayed_scan_refresh(device, generation),
+                    lambda: self._delayed_scan_refresh(
+                        device,
+                        generation,
+                        page_key,
+                    ),
                 )
             return handled
         if action == "power" and self._confirmed_power is not None:
@@ -1736,12 +1741,21 @@ class RadioPage(BasePage):
         )
         return True
 
-    def _delayed_scan_refresh(self, device: str, generation: int) -> None:
+    def _page_key(self) -> str:
+        return "wifi" if self.domain == "network" else "bluetooth"
+
+    def _delayed_scan_refresh(
+        self,
+        device: str,
+        generation: int,
+        page_key: str,
+    ) -> None:
         if (
             self.app._closed
             or generation != self._state_generation
             or device != self.selected_device()
-            or self.app._active_page != "wifi"
+            or page_key != self._page_key()
+            or self.app._active_page != page_key
         ):
             return
         self.operation_notice.set("")
@@ -1783,7 +1797,7 @@ class RadioPage(BasePage):
     def external_change(self, payload: dict[str, Any]) -> None:
         if str(payload.get("domain") or "") != self.domain:
             return
-        page_key = "wifi" if self.domain == "network" else "bluetooth"
+        page_key = self._page_key()
         if self.app._active_page == page_key:
             self.refresh()
         else:

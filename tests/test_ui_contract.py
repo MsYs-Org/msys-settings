@@ -157,6 +157,20 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('state["values"].get("hard_blocked") is True', source)
         self.assertIn("self.power.set(self._confirmed_power)", source)
 
+    def test_delayed_radio_scan_refresh_is_scoped_to_its_own_page(self) -> None:
+        source = self._source()
+        radio = source.split("class RadioPage", 1)[1].split(
+            "class WifiPage", 1
+        )[0]
+        self.assertIn(
+            'return "wifi" if self.domain == "network" else "bluetooth"',
+            radio,
+        )
+        self.assertIn("page_key = self._page_key()", radio)
+        self.assertIn("or page_key != self._page_key()", radio)
+        self.assertIn("or self.app._active_page != page_key", radio)
+        self.assertNotIn('self.app._active_page != "wifi"', radio)
+
     def test_input_method_entry_is_typed_and_unavailable_is_disabled(self) -> None:
         source = self._source()
         self.assertIn("self.app.model.input_method_status", source)
