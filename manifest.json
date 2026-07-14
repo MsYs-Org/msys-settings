@@ -1,0 +1,130 @@
+{
+  "schema": "msys.manifest.v1",
+  "package": {
+    "id": "org.msys.settings",
+    "name": "MSYS Settings",
+    "version": "0.2.11",
+    "kind": "application",
+    "vendor": "MSYS",
+    "summary": "System, application, display, role, HAL, update, and rollback settings",
+    "x-msys-i18n": {
+      "catalog": "files/share/i18n/catalog.json",
+      "name_key": "app.name",
+      "summary_key": "app.summary"
+    },
+    "icons": [
+      {
+        "size": 32,
+        "mime": "image/x-portable-pixmap",
+        "path": "files/share/icons/settings.ppm"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "main",
+      "name": "Settings",
+      "runtime": "tk",
+      "exec": [
+        "python",
+        "@package/files/app/main.py"
+      ],
+      "lifecycle": "manual",
+      "restart": "never",
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      },
+      "readiness": {
+        "mode": "mipc-ready",
+        "timeout_ms": 8000
+      },
+      "permissions": [
+        "display:x11",
+        "mipc.call:msys.core",
+        "mipc.call:role:window-manager",
+        "mipc.call:role:launcher",
+        "mipc.call:role:update-agent",
+        "mipc.call:role:install-agent",
+        "mipc.call:role:input-method",
+        "mipc.call:org.msys.hal.manager.v1",
+        "mipc.call:org.msys.hal.ch347-control.v1",
+        "mipc.event:subscribe:msys.activation",
+        "mipc.event:subscribe:msys.hal.changed",
+        "mipc.event:subscribe:msys.shell.preferences.changed",
+        "mipc.event:subscribe:msys.update.checked",
+        "mipc.event:subscribe:msys.update.applied",
+        "mipc.event:subscribe:msys.update.error",
+        "mipc.event:subscribe:msys.install.package_changed",
+        "mipc.event:subscribe:msys.install.error",
+        "mipc.event:subscribe:msys.display.migration"
+      ],
+      "isolation": "baseline",
+      "windowing": {
+        "system": "x11",
+        "display": "inherit",
+        "mode": "window",
+        "title": "MSYS Settings",
+        "identity": {
+          "app_id": "org.msys.settings",
+          "x11_wm_class": "org.msys.settings",
+          "x11_wm_instance": "main"
+        }
+      },
+      "activation": {
+        "launchable": true,
+        "intents": [
+          {
+            "action": "settings-panel",
+            "name": "system",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "layout",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "display",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "wifi",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "bluetooth",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "appearance",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "apps",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "roles",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "hal",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "updates",
+            "priority": 100
+          }
+        ]
+      }
+    }
+  ]
+}
