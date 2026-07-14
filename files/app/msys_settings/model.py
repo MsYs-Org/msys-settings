@@ -25,6 +25,16 @@ HAL_LEGACY_FEATURE_ERRORS = frozenset({"HAL_BAD_PAYLOAD", "HAL_UNKNOWN_METHOD"})
 CH347_CONTROL_SCHEMA = "org.msys.hal.ch347-control.v1"
 CH347_DEVICE = "display-output:ch347"
 CH347_DEBUG_STATUSES = ("active", "idle", "unavailable")
+CH347_DEBUG_COUNTER_FIELDS = (
+    "sent_frames",
+    "zero_damage",
+    "full_refreshes",
+    "large_refreshes",
+    "sent_pixels",
+    "last_sent_pixels",
+    "last_rects",
+)
+UINT64_MAX = 18_446_744_073_709_551_615
 CH347_CALIBRATION_BOOLEAN_FIELDS = (
     "enabled",
     "swap_xy",
@@ -1602,6 +1612,14 @@ def normalise_ch347_debug_response(payload: dict[str, Any]) -> dict[str, Any]:
             1,
             86_400_000,
         )
+    dirty_counters: dict[str, int | None] = {}
+    for field in CH347_DEBUG_COUNTER_FIELDS:
+        value = debug.get(field)
+        dirty_counters[field] = (
+            None
+            if value is None
+            else _bounded_integer(value, f"CH347 debug {field}", 0, UINT64_MAX)
+        )
     status = debug.get("status")
     if status not in CH347_DEBUG_STATUSES:
         raise ValueError("CH347 control returned invalid debug status")
@@ -1624,6 +1642,7 @@ def normalise_ch347_debug_response(payload: dict[str, Any]) -> dict[str, Any]:
             "panel_fps": panel_fps,
             "frames": frames,
             "window_ms": window_ms,
+            **dirty_counters,
             "status": status,
             "reason": reason,
         },

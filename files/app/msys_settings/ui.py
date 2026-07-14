@@ -2036,6 +2036,9 @@ class LayoutPage(BasePage):
         self.debug_observed = tk.StringVar(value=app.tr("common.not_loaded"))
         self.debug_generation = tk.StringVar(value=app.tr("common.not_loaded"))
         self.debug_application = tk.StringVar(value=app.tr("common.not_loaded"))
+        self.debug_dirty_frames = tk.StringVar(value=app.tr("common.not_loaded"))
+        self.debug_dirty_refreshes = tk.StringVar(value=app.tr("common.not_loaded"))
+        self.debug_dirty_pixels = tk.StringVar(value=app.tr("common.not_loaded"))
         self.debug_feedback = tk.StringVar(value=app.tr("display.debug_loading"))
         self.debug_inputs: list[tk.Widget] = []
 
@@ -2066,6 +2069,9 @@ class LayoutPage(BasePage):
             ("display.debug_observed_fps", self.debug_observed),
             ("display.debug_generation", self.debug_generation),
             ("display.debug_application", self.debug_application),
+            ("display.debug_dirty_frames", self.debug_dirty_frames),
+            ("display.debug_dirty_refreshes", self.debug_dirty_refreshes),
+            ("display.debug_dirty_pixels", self.debug_dirty_pixels),
         ), start=2):
             ttk.Label(debug_form, text=app.tr(label_key)).grid(
                 row=row,
@@ -2081,6 +2087,15 @@ class LayoutPage(BasePage):
                 wraplength=158 if app.compact else 430,
             ).grid(row=row, column=1, sticky="e", padx=(8, 0), pady=3)
         debug_form.columnconfigure(0, weight=1)
+        tk.Label(
+            debug_card,
+            text=app.tr("display.debug_dirty_note"),
+            background=PANEL_ALT,
+            foreground=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=276 if app.compact else 650,
+        ).pack(fill="x", pady=(4, 2))
 
         debug_toggle = ttk.Checkbutton(
             debug_card,
@@ -2231,6 +2246,7 @@ class LayoutPage(BasePage):
         if not result.ok:
             self._debug_loaded = False
             self._set_debug_controls(False)
+            self._set_debug_dirty_counters(None)
             message = self.app.tr(
                 "display.debug_unavailable",
                 {"message": result.message or result.code or self.app.tr("common.unavailable")},
@@ -2279,6 +2295,7 @@ class LayoutPage(BasePage):
             "display.debug_application_value",
             {"configured": configured, "application": application},
         ))
+        self._set_debug_dirty_counters(debug)
 
         observed = debug.get("observed_fps")
         panel_fps = debug.get("panel_fps")
@@ -2334,6 +2351,38 @@ class LayoutPage(BasePage):
             foreground=ERROR if debug.get("status") == "unavailable" else MUTED
         )
         self._set_debug_controls(True)
+
+    def _set_debug_dirty_counters(self, debug: dict[str, Any] | None) -> None:
+        def value(field: str) -> str:
+            counter = debug.get(field) if debug is not None else None
+            return (
+                str(counter)
+                if counter is not None
+                else self.app.tr("common.unavailable")
+            )
+
+        self.debug_dirty_frames.set(self.app.tr(
+            "display.debug_dirty_frames_value",
+            {
+                "sent_frames": value("sent_frames"),
+                "zero_damage": value("zero_damage"),
+            },
+        ))
+        self.debug_dirty_refreshes.set(self.app.tr(
+            "display.debug_dirty_refreshes_value",
+            {
+                "full_refreshes": value("full_refreshes"),
+                "large_refreshes": value("large_refreshes"),
+            },
+        ))
+        self.debug_dirty_pixels.set(self.app.tr(
+            "display.debug_dirty_pixels_value",
+            {
+                "sent_pixels": value("sent_pixels"),
+                "last_sent_pixels": value("last_sent_pixels"),
+                "last_rects": value("last_rects"),
+            },
+        ))
 
     def _debug_integer(self, variable: tk.StringVar, field: str) -> int:
         try:

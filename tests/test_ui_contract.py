@@ -97,6 +97,24 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('self.debug_apply_button.pack(fill="x")', layout_page)
         self.assertIn("ScrollableSurface(self, background=PANEL)", layout_page)
 
+    def test_display_debug_shows_cumulative_dirty_counters_without_rates(self) -> None:
+        source = self._source()
+        layout_page = source.split("class LayoutPage", 1)[1].split(
+            "class AppearancePage", 1
+        )[0]
+        for field in (
+            "sent_frames",
+            "zero_damage",
+            "full_refreshes",
+            "large_refreshes",
+            "sent_pixels",
+            "last_sent_pixels",
+            "last_rects",
+        ):
+            self.assertIn(f'value("{field}")', layout_page)
+        self.assertIn('self.app.tr("common.unavailable")', layout_page)
+        self.assertIn('app.tr("display.debug_dirty_note")', layout_page)
+
     def test_320_by_480_keeps_exact_compact_viewport(self) -> None:
         self.assertTrue(is_compact(320))
         self.assertEqual(window_size(320, 480), (320, 480))

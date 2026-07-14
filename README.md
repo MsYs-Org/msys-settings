@@ -1,5 +1,14 @@
 # MSYS Settings
 
+## 0.2.14 cumulative CH347 dirty-region diagnostics
+
+The Display diagnostics card now shows the latest provider-reported cumulative
+dirty-region counters: sent and zero-damage frames, full and large refreshes,
+total and most-recent pixel counts, and the most-recent rectangle count. These
+values are displayed exactly as cumulative sink counters, never converted into
+rates, deltas, or an invented sampling window. Older CH347 providers remain
+compatible and show a localized unavailable value for every missing counter.
+
 ## 0.2.13 radio scan refresh correctness
 
 Wi-Fi and Bluetooth scan completion now refreshes only the radio page that

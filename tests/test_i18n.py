@@ -73,6 +73,18 @@ class SettingsI18nTests(unittest.TestCase):
             "捕获 12.5 FPS",
         )
         self.assertEqual(
+            i18n.text("display.debug_dirty_note"),
+            "自显示接收端启动后累计；这些数值不是采样速率。",
+        )
+        self.assertEqual(
+            i18n.text("display.debug_dirty_pixels_value", {
+                "sent_pixels": 1000,
+                "last_sent_pixels": 320,
+                "last_rects": 2,
+            }),
+            "总计 1000 · 上次 320 · 上次 2 个矩形",
+        )
+        self.assertEqual(
             i18n.text("apps.summary", {"count": 4}),
             "4 个已安装的软件包",
         )

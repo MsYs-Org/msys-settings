@@ -46,6 +46,13 @@ def debug_response(**changes):
         "panel_fps": None,
         "frames": None,
         "window_ms": None,
+        "sent_frames": None,
+        "zero_damage": None,
+        "full_refreshes": None,
+        "large_refreshes": None,
+        "sent_pixels": None,
+        "last_sent_pixels": None,
+        "last_rects": None,
         "status": "unavailable",
         "reason": "no machine-readable counter",
     }
@@ -255,6 +262,16 @@ class Ch347Tests(unittest.TestCase):
         self.assertIsNone(unavailable["debug"]["panel_fps"])
         self.assertIsNone(unavailable["debug"]["frames"])
         self.assertIsNone(unavailable["debug"]["window_ms"])
+        for field in (
+            "sent_frames",
+            "zero_damage",
+            "full_refreshes",
+            "large_refreshes",
+            "sent_pixels",
+            "last_sent_pixels",
+            "last_rects",
+        ):
+            self.assertIsNone(unavailable["debug"][field])
 
         measured = normalise_ch347_debug_response(debug_response(
             observed_fps=23.5,
@@ -276,6 +293,80 @@ class Ch347Tests(unittest.TestCase):
             status="active",
         ))
         self.assertEqual(boundary["debug"]["frames"], 4_294_967_295)
+
+    def test_debug_response_accepts_complete_cumulative_dirty_counters(self) -> None:
+        response = normalise_ch347_debug_response(debug_response(
+            sent_frames=120,
+            zero_damage=45,
+            full_refreshes=2,
+            large_refreshes=7,
+            sent_pixels=9_876_543,
+            last_sent_pixels=1_024,
+            last_rects=3,
+        ))
+        self.assertEqual(
+            {field: response["debug"][field] for field in (
+                "sent_frames",
+                "zero_damage",
+                "full_refreshes",
+                "large_refreshes",
+                "sent_pixels",
+                "last_sent_pixels",
+                "last_rects",
+            )},
+            {
+                "sent_frames": 120,
+                "zero_damage": 45,
+                "full_refreshes": 2,
+                "large_refreshes": 7,
+                "sent_pixels": 9_876_543,
+                "last_sent_pixels": 1_024,
+                "last_rects": 3,
+            },
+        )
+
+    def test_old_debug_response_normalises_missing_dirty_counters_to_none(self) -> None:
+        legacy = debug_response()
+        for field in (
+            "sent_frames",
+            "zero_damage",
+            "full_refreshes",
+            "large_refreshes",
+            "sent_pixels",
+            "last_sent_pixels",
+            "last_rects",
+        ):
+            legacy["debug"].pop(field)
+        normalised = normalise_ch347_debug_response(legacy)["debug"]
+        self.assertTrue(all(normalised[field] is None for field in (
+            "sent_frames",
+            "zero_damage",
+            "full_refreshes",
+            "large_refreshes",
+            "sent_pixels",
+            "last_sent_pixels",
+            "last_rects",
+        )))
+
+    def test_malformed_dirty_counters_are_rejected(self) -> None:
+        maximum = 18_446_744_073_709_551_615
+        for field in (
+            "sent_frames",
+            "zero_damage",
+            "full_refreshes",
+            "large_refreshes",
+            "sent_pixels",
+            "last_sent_pixels",
+            "last_rects",
+        ):
+            for value in (True, -1, "1", maximum + 1):
+                with self.subTest(field=field, value=value):
+                    with self.assertRaises((TypeError, ValueError)):
+                        normalise_ch347_debug_response(debug_response(**{field: value}))
+            boundary = normalise_ch347_debug_response(
+                debug_response(**{field: maximum})
+            )
+            self.assertEqual(boundary["debug"][field], maximum)
 
     def test_malformed_debug_response_is_rejected(self) -> None:
         for changes in (
