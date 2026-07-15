@@ -783,6 +783,7 @@ class SettingsApplication:
                 if not isinstance(timezone, str):
                     raise ValueError("timezone must be a string")
                 state = self.regional_store.set_timezone(timezone)
+                self.model.client.notify_timezone_changed(timezone)
                 regional = self._pages.get("regional")
                 if isinstance(regional, RegionalPage):
                     regional.refresh()

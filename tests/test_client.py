@@ -71,6 +71,23 @@ class SettingsClientTests(unittest.TestCase):
         self.assertTrue(self.rpc.calls[0][3]["idempotent"])
         self.assertEqual(self.rpc.calls[1][3], {"timeout": 5.0})
 
+    def test_timezone_change_publishes_one_small_invalidation_event(self) -> None:
+        self.client.notify_timezone_changed("Asia/Shanghai")
+        self.assertEqual(
+            self.rpc.calls,
+            [
+                (
+                    "msys.core",
+                    "broadcast",
+                    {
+                        "topic": "msys.timezone.changed",
+                        "payload": {"timezone": "Asia/Shanghai"},
+                    },
+                    {"timeout": 5.0},
+                )
+            ],
+        )
+
     def test_input_method_uses_replaceable_typed_role(self) -> None:
         self.client.input_method_status()
         self.client.toggle_input_method()

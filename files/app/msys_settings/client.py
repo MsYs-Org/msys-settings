@@ -66,6 +66,17 @@ class SettingsClient:
             timeout=5.0,
         )
 
+    def notify_timezone_changed(self, timezone: str) -> dict[str, Any]:
+        return self.rpc.call(
+            "msys.core",
+            "broadcast",
+            {
+                "topic": "msys.timezone.changed",
+                "payload": {"timezone": timezone},
+            },
+            timeout=5.0,
+        )
+
     def list_roles(self) -> dict[str, Any]:
         return self.rpc.call("msys.core", "list_roles", {}, idempotent=True)
 
