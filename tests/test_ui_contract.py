@@ -39,6 +39,7 @@ class UiContractTests(unittest.TestCase):
         self.assertIn("msys.update.checked", topics)
         self.assertIn("msys.update.applied", topics)
         self.assertIn("msys.install.package_changed", topics)
+        self.assertIn("msys.audio.changed", topics)
 
     def test_roles_focus_selects_loaded_role_or_remembers_deferred_role(self) -> None:
         self.assertEqual(
@@ -163,6 +164,43 @@ class UiContractTests(unittest.TestCase):
         self.assertIn("self.app.model.hal_set_state", source)
         self.assertNotIn("wpa_cli", source)
         self.assertNotIn("dbus", source.lower())
+
+    def test_bluetooth_separates_hal_power_from_audio_device_lifecycle(self) -> None:
+        source = self._source()
+        radio = source.split("class RadioPage", 1)[1].split(
+            "class WifiPage", 1
+        )[0]
+        self.assertIn("self.app.model.audio_devices(refresh=True)", radio)
+        self.assertIn("self.app.model.audio_scan_devices(15000)", radio)
+        self.assertIn("self.app.model.audio_device_action(action, address)", radio)
+        self.assertIn('lambda: self.apply_action("scan")', radio)
+        self.assertIn("command=self.scan_bluetooth", radio)
+        self.assertIn('columns=("name", "status", "address")', radio)
+        self.assertIn("self._bluetooth_controller_registered", radio)
+        self.assertNotIn('values.get("discovered_devices"', radio)
+        self.assertNotIn("bluetoothctl", radio)
+
+    def test_audio_page_uses_role_contract_and_reuses_bluetooth_pairing(self) -> None:
+        source = self._source()
+        audio = source.split("class AudioPage", 1)[1].split(
+            "class LayoutPage", 1
+        )[0]
+        self.assertIn('("audio", "nav.audio", AudioPage)', source)
+        self.assertIn("ScrollableSurface(self, background=PANEL)", audio)
+        self.assertIn("MaterialStatusCard(", audio)
+        self.assertIn("self.app.model.audio_state", audio)
+        self.assertIn("self.app.model.audio_select_output", audio)
+        self.assertIn("self.app.model.audio_set_volume", audio)
+        self.assertIn("self.app.model.audio_set_muted", audio)
+        self.assertIn("self.app.model.audio_configure_player", audio)
+        self.assertIn('app.show_page("bluetooth")', audio)
+        self.assertIn("if app.compact:\n            mute_actions", audio)
+        self.assertIn("if isinstance(volume, int)", audio)
+        self.assertIn("if isinstance(muted, bool)", audio)
+        self.assertIn('else self.app.tr("common.unavailable")', audio)
+        self.assertNotIn("pair(", audio)
+        self.assertNotIn("bluetoothctl", audio)
+        self.assertNotIn("dbus", audio.lower())
 
     def test_radio_actions_cover_saved_networks_scan_refresh_and_hard_block(self) -> None:
         source = self._source()

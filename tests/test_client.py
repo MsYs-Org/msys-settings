@@ -71,6 +71,62 @@ class SettingsClientTests(unittest.TestCase):
         self.assertTrue(self.rpc.calls[0][3]["idempotent"])
         self.assertNotIn("idempotent", self.rpc.calls[1][3])
 
+    def test_audio_uses_only_the_replaceable_audio_manager_role(self) -> None:
+        self.client.audio_get_state(refresh=True)
+        self.client.audio_set_volume({"percent": 60, "output": "headset"})
+        self.client.audio_set_muted({"muted": True, "output": "headset"})
+        self.client.audio_select_output({"id": "headset"})
+        self.client.audio_configure_player(
+            {"enabled": True, "server": "10.0.0.2", "name": "Desk"}
+        )
+        self.assertEqual(
+            [call[:2] for call in self.rpc.calls],
+            [
+                ("role:audio-manager", "get_state"),
+                ("role:audio-manager", "set_volume"),
+                ("role:audio-manager", "set_muted"),
+                ("role:audio-manager", "select_output"),
+                ("role:audio-manager", "configure_player"),
+            ],
+        )
+        self.assertEqual(self.rpc.calls[0][2], {"refresh": True})
+        self.assertEqual(
+            self.rpc.calls[0][3],
+            {"timeout": 20.0, "idempotent": True},
+        )
+        self.assertTrue(
+            all(call[3] == {"timeout": 45.0} for call in self.rpc.calls[1:])
+        )
+
+    def test_bluetooth_audio_lifecycle_uses_one_role_and_bounded_timeouts(self) -> None:
+        self.client.audio_list_devices(refresh=True)
+        self.client.audio_scan(timeout_ms=15000)
+        for action in ("pair", "connect", "disconnect", "forget"):
+            self.client.audio_device_action(
+                action,
+                {"address": "AA:BB:CC:DD:EE:FF"},
+            )
+        self.assertEqual(
+            [call[:2] for call in self.rpc.calls],
+            [
+                ("role:audio-manager", "list_devices"),
+                ("role:audio-manager", "scan"),
+                ("role:audio-manager", "pair"),
+                ("role:audio-manager", "connect"),
+                ("role:audio-manager", "disconnect"),
+                ("role:audio-manager", "forget"),
+            ],
+        )
+        self.assertEqual(
+            self.rpc.calls[0][3],
+            {"timeout": 20.0, "idempotent": True},
+        )
+        self.assertTrue(
+            all(call[3] == {"timeout": 45.0} for call in self.rpc.calls[1:])
+        )
+        with self.assertRaises(ValueError):
+            self.client.audio_device_action("remove", {"address": "unused"})
+
     def test_hal_uses_versioned_interface(self) -> None:
         self.client.hal_inventory(refresh=True)
         self.client.hal_get_state("display:primary", refresh=True)

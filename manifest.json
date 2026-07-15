@@ -3,10 +3,10 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.2.14",
+    "version": "0.2.18",
     "kind": "application",
     "vendor": "MSYS",
-    "summary": "System, application, display, role, HAL, update, and rollback settings",
+    "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
     "x-msys-i18n": {
       "catalog": "files/share/i18n/catalog.json",
       "name_key": "app.name",
@@ -46,6 +46,7 @@
         "mipc.call:role:update-agent",
         "mipc.call:role:install-agent",
         "mipc.call:role:input-method",
+        "mipc.call:role:audio-manager",
         "mipc.call:org.msys.hal.manager.v1",
         "mipc.call:org.msys.hal.ch347-control.v1",
         "mipc.event:subscribe:msys.activation",
@@ -56,7 +57,8 @@
         "mipc.event:subscribe:msys.update.error",
         "mipc.event:subscribe:msys.install.package_changed",
         "mipc.event:subscribe:msys.install.error",
-        "mipc.event:subscribe:msys.display.migration"
+        "mipc.event:subscribe:msys.display.migration",
+        "mipc.event:subscribe:msys.audio.changed"
       ],
       "isolation": "baseline",
       "windowing": {
@@ -96,6 +98,11 @@
           {
             "action": "settings-panel",
             "name": "bluetooth",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "audio",
             "priority": 100
           },
           {

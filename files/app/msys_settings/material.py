@@ -212,6 +212,7 @@ class MaterialCardButton(tk.Canvas):
         aliases = {
             "Wi": "wifi",
             "Bt": "bluetooth",
+            "Au": "audio",
             "D": "display",
             "Kb": "keyboard",
             "A": "appearance",
@@ -241,6 +242,35 @@ class MaterialCardButton(tk.Canvas):
                              fill=color, width=2, joinstyle="round")
             self.create_line(x, y - 12, x + 8, y - 5, x - 7, y + 6,
                              fill=color, width=2, joinstyle="round")
+        elif icon == "audio":
+            self.create_polygon(
+                x - 11,
+                y - 4,
+                x - 5,
+                y - 4,
+                x + 2,
+                y - 10,
+                x + 2,
+                y + 10,
+                x - 5,
+                y + 4,
+                x - 11,
+                y + 4,
+                fill="",
+                outline=color,
+                width=2,
+            )
+            self.create_arc(
+                x - 2,
+                y - 9,
+                x + 13,
+                y + 9,
+                start=-55,
+                extent=110,
+                style="arc",
+                outline=color,
+                width=2,
+            )
         elif icon == "display":
             self.create_rectangle(x - 12, y - 9, x + 12, y + 7, outline=color, width=2)
             self.create_line(x - 5, y + 11, x + 5, y + 11, x, y + 7, fill=color, width=2)

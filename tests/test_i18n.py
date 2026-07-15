@@ -88,6 +88,14 @@ class SettingsI18nTests(unittest.TestCase):
             i18n.text("apps.summary", {"count": 4}),
             "4 个已安装的软件包",
         )
+        self.assertEqual(i18n.text("nav.audio"), "音频")
+        self.assertEqual(
+            i18n.text(
+                "audio.status_unavailable",
+                {"backend": "bluealsa", "reason": "控制器未注册"},
+            ),
+            "后端 bluealsa：控制器未注册",
+        )
 
     def test_missing_catalog_recovers_with_english_without_sdk_daemon(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -127,6 +135,7 @@ class SettingsI18nTests(unittest.TestCase):
             "system.",
             "display.",
             "radio.",
+            "audio.",
             "keyboard.",
             "appearance.",
             "apps.",

@@ -1,5 +1,35 @@
 # MSYS Settings
 
+## 0.2.18 Truthful Bluetooth discovery
+
+Bluetooth discovery now requests a real 15-second RF window, preserves typed
+scan diagnostics, and tells the user to put a headset in pairing mode when a
+completed scan finds no devices.
+
+## 0.2.17 Audio event UI hygiene
+
+`msys.audio.changed` is now treated strictly as an invalidation signal. It
+refreshes the active Bluetooth or Audio page without leaking the internal topic
+into the status bar or overwriting scan and pairing feedback.
+
+## 0.2.16 Bluetooth audio device lifecycle
+
+Bluetooth power stays in the replaceable HAL domain. Discovery, listing,
+pairing, connection, disconnection, and forgetting now go only through
+`role:audio-manager`, so Settings never starts a competing HAL scan. The
+touch-friendly device list shows paired and connected state, and truthfully
+disables all lifecycle actions when no Linux Management controller is
+registered.
+
+## 0.2.15 replaceable audio controls
+
+Settings now exposes the stable `role:audio-manager` as a responsive Audio
+page. It reports private stack health and unavailability reasons, lists real
+playback outputs, controls output selection/volume/mute, and edits the bounded
+squeezelite enabled/server/name configuration. Bluetooth device management is
+linked from the existing Bluetooth page. All audio calls are typed mIPC role calls; PCM and private
+provider implementation details never cross Settings.
+
 ## 0.2.14 cumulative CH347 dirty-region diagnostics
 
 The Display diagnostics card now shows the latest provider-reported cumulative
@@ -90,6 +120,9 @@ five-second default. Other RPCs retain their shorter failure detection.
 - The on-screen-keyboard card calls only the replaceable `role:input-method`
   typed `status`/`toggle` API; it is disabled with a clear message when the role
   has no provider.
+- Audio calls only the replaceable `role:audio-manager` contract. It displays
+  truthful stack/output/mixer/player state and links to the existing Bluetooth
+  page for discovery and pairing instead of duplicating device lifecycle UI.
 
 ### Provider and frontend integration
 
@@ -103,6 +136,9 @@ developer gets UI integration by implementing the existing generic contracts:
   while Bluetooth exposes a power control only when `powered` is mutable;
 - provide the exclusive `input-method` role with typed `status({})` and
   `toggle({})` returning `msys.input-method-state.v1` and a boolean `visible`;
+- provide the exclusive `audio-manager` role with
+  `get_state/select_output/set_volume/set_muted/configure_player`; PCM remains
+  on the provider's media transport and never crosses mIPC;
 - put user-facing text in `files/share/i18n/catalog.json` and use the same
   `msys_sdk.i18n.Translator` API. No global locale daemon or UI framework is
   required.
@@ -136,6 +172,7 @@ C/C++ 或其他框架重写界面而不改变系统接口。
 | System overview | `msys.core.discover/list_components/isolation_capabilities/list_roles` |
 | Display | `role:window-manager.get_layout/set_layout` + `msys.core.list_roles` + HAL display domain |
 | Desktop appearance | `role:launcher.get_preferences/set_preferences` |
+| Audio | `role:audio-manager.get_state/select_output/set_volume/set_muted/configure_player` |
 | Apps | `role:install-agent.registry/uninstall` typed RPC |
 | Roles | `msys.core.list_roles/select_role/reset_role` |
 | HAL | `interface:org.msys.hal.manager.v1.inventory/get_state/set_state/list_providers/select_provider/reset_provider` |

@@ -157,6 +157,7 @@ class SettingsApplication:
         "msys.install.package_changed",
         "msys.install.error",
         "msys.display.migration",
+        "msys.audio.changed",
     )
 
     def __init__(
@@ -330,6 +331,7 @@ class SettingsApplication:
             ("home", "nav.home", HomePage),
             ("wifi", "nav.wifi", WifiPage),
             ("bluetooth", "nav.bluetooth", BluetoothPage),
+            ("audio", "nav.audio", AudioPage),
             ("layout", "nav.display", LayoutPage),
             ("appearance", "nav.appearance", AppearancePage),
             ("apps", "nav.apps", AppsPage),
@@ -539,6 +541,17 @@ class SettingsApplication:
                         appearance.external_change(
                             payload if isinstance(payload, dict) else {}
                         )
+                elif topic == "msys.audio.changed":
+                    audio = self._pages.get("audio")
+                    if isinstance(audio, AudioPage):
+                        audio.external_change()
+                    bluetooth = self._pages.get("bluetooth")
+                    if isinstance(bluetooth, BluetoothPage):
+                        bluetooth.external_audio_change()
+                    # This is an invalidation signal, not user-facing status.
+                    # The active page refreshes itself and inactive pages are
+                    # marked stale without exposing the raw event topic.
+                    status_handled = True
                 elif topic == "msys.display.migration" and isinstance(payload, dict):
                     self.handle_display_migration(payload)
                     # A duplicate terminal/progress record is intentionally
@@ -674,6 +687,7 @@ class HomePage(BasePage):
         self.keyboard_card.set_disabled(True)
         self.keyboard_card.pack(fill="x", pady=(0, app.metrics.card_gap))
         more_items = (
+            ("audio", "Au", "nav.audio", "home.audio.note"),
             ("appearance", "A", "nav.appearance", "home.appearance.note"),
             ("apps", "P", "nav.apps", "home.apps.note"),
             ("roles", "R", "nav.roles", "home.roles.note"),
@@ -1017,6 +1031,9 @@ class RadioPage(BasePage):
         self._domain_available = False
         self._network_rows: dict[str, dict[str, Any]] = {}
         self._bluetooth_rows: dict[str, dict[str, Any]] = {}
+        self._bluetooth_controller_registered = False
+        self._bluetooth_powered: bool | None = None
+        self._bluetooth_audio_busy = False
         self._confirmed_power: bool | None = None
         self._hard_blocked = False
         self._operation_error = ""
@@ -1049,6 +1066,21 @@ class RadioPage(BasePage):
             text=app.tr("common.open_hal"),
             command=self.manage_hal,
         ).pack(side="left", padx=(6, 0))
+        if self.domain == "bluetooth":
+            audio_parent = toolbar
+            if app.compact:
+                audio_parent = ttk.Frame(container, style="Panel.TFrame")
+                audio_parent.pack(fill="x", pady=(0, 7))
+            audio_button = ttk.Button(
+                audio_parent,
+                text=app.tr("audio.open_audio"),
+                command=lambda: app.show_page("audio"),
+            )
+            audio_button.pack(
+                fill="x" if app.compact else "none",
+                side="top" if app.compact else "left",
+                padx=(0, 0) if app.compact else (6, 0),
+            )
 
         ttk.Label(container, text=app.tr("radio.devices"), style="Panel.TLabel").pack(
             anchor="w", pady=(0, 4)
@@ -1206,7 +1238,7 @@ class RadioPage(BasePage):
         self.bluetooth_scan_button = ttk.Button(
             bluetooth_toolbar,
             text=app.tr("radio.scan"),
-            command=lambda: self.apply_action("scan"),
+            command=self.scan_bluetooth,
             state="disabled",
         )
         self.bluetooth_scan_button.pack(side="right")
@@ -1214,19 +1246,19 @@ class RadioPage(BasePage):
         bluetooth_tree_frame.pack(fill="both", expand=True)
         self.bluetooth_tree = ttk.Treeview(
             bluetooth_tree_frame,
-            columns=("name", "address", "rssi"),
+            columns=("name", "status", "address"),
             show="headings",
             height=3 if app.compact else 5,
             selectmode="browse",
         )
         self.bluetooth_tree.heading("name", text=app.tr("common.device"))
+        self.bluetooth_tree.heading("status", text=app.tr("common.status"))
         self.bluetooth_tree.heading("address", text=app.tr("radio.address"))
-        self.bluetooth_tree.heading("rssi", text=app.tr("radio.signal"))
-        self.bluetooth_tree.column("name", width=145 if app.compact else 230, anchor="w")
+        self.bluetooth_tree.column("name", width=155 if app.compact else 260, anchor="w")
+        self.bluetooth_tree.column("status", width=105, anchor="w")
         self.bluetooth_tree.column("address", width=135, anchor="w")
-        self.bluetooth_tree.column("rssi", width=55, anchor="e")
         if app.compact:
-            self.bluetooth_tree.configure(displaycolumns=("name", "rssi"))
+            self.bluetooth_tree.configure(displaycolumns=("name", "status"))
         bluetooth_scroll = ttk.Scrollbar(
             bluetooth_tree_frame,
             orient="vertical",
@@ -1235,6 +1267,49 @@ class RadioPage(BasePage):
         self.bluetooth_tree.configure(yscrollcommand=bluetooth_scroll.set)
         self.bluetooth_tree.pack(side="left", fill="both", expand=True)
         bluetooth_scroll.pack(side="right", fill="y")
+        self.bluetooth_tree.bind(
+            "<<TreeviewSelect>>",
+            lambda _event: self._update_bluetooth_actions(),
+        )
+        bluetooth_primary = ttk.Frame(self.bluetooth_panel, style="Panel.TFrame")
+        bluetooth_primary.pack(fill="x", pady=(5, 0))
+        self.bluetooth_pair_button = ttk.Button(
+            bluetooth_primary,
+            text=app.tr("radio.pair"),
+            command=lambda: self.bluetooth_device_action("pair"),
+            state="disabled",
+        )
+        self.bluetooth_pair_button.pack(side="left", fill="x", expand=True)
+        self.bluetooth_connect_button = ttk.Button(
+            bluetooth_primary,
+            text=app.tr("radio.connect"),
+            command=lambda: self.bluetooth_device_action("connect"),
+            state="disabled",
+        )
+        self.bluetooth_connect_button.pack(side="left", fill="x", expand=True, padx=(5, 0))
+        bluetooth_secondary = bluetooth_primary
+        if app.compact:
+            bluetooth_secondary = ttk.Frame(self.bluetooth_panel, style="Panel.TFrame")
+            bluetooth_secondary.pack(fill="x", pady=(5, 0))
+        self.bluetooth_disconnect_button = ttk.Button(
+            bluetooth_secondary,
+            text=app.tr("radio.disconnect"),
+            command=lambda: self.bluetooth_device_action("disconnect"),
+            state="disabled",
+        )
+        self.bluetooth_disconnect_button.pack(
+            side="left",
+            fill="x",
+            expand=True,
+            padx=(0, 0) if app.compact else (5, 0),
+        )
+        self.bluetooth_forget_button = ttk.Button(
+            bluetooth_secondary,
+            text=app.tr("radio.forget"),
+            command=lambda: self.bluetooth_device_action("forget"),
+            state="disabled",
+        )
+        self.bluetooth_forget_button.pack(side="left", fill="x", expand=True, padx=(5, 0))
         self.bluetooth_notice = tk.StringVar(value=app.tr("radio.bluetooth_scan_hint"))
         ttk.Label(
             self.bluetooth_panel,
@@ -1262,6 +1337,8 @@ class RadioPage(BasePage):
     def refresh(self) -> None:
         self._disable_controls()
         self.operation_notice.set("")
+        if self.domain == "bluetooth":
+            self._refresh_bluetooth_audio()
         self.app.run_task(
             self.app.tr("status.loading_radio", {"radio": self._radio_name}),
             lambda: self.app.model.hal_inventory(refresh=True),
@@ -1471,8 +1548,6 @@ class RadioPage(BasePage):
                 self._set_status_card_color(ERROR_CONTAINER)
             else:
                 self._set_status_card_color(SUCCESS_CONTAINER)
-            if state["values"].get("pairing_available") is False:
-                state_message += " · " + self.app.tr("radio.pairing_unavailable")
         elif self.domain == "network":
             wifi_control = str(state["values"].get("wifi_control") or "unavailable")
             if wifi_control == "degraded":
@@ -1556,46 +1631,220 @@ class RadioPage(BasePage):
     def _apply_bluetooth_state(self, values: dict[str, Any], mutable: list[str]) -> None:
         if self.domain != "bluetooth":
             return
+        powered = values.get("powered")
+        self._bluetooth_powered = powered if isinstance(powered, bool) else None
+        self._update_bluetooth_actions()
+
+    def _refresh_bluetooth_audio(self) -> None:
+        if self.domain != "bluetooth" or self._bluetooth_audio_busy:
+            return
+        self._bluetooth_audio_busy = True
+        self._update_bluetooth_actions()
+        self.app.run_task(
+            self.app.tr("status.loading_bluetooth_devices"),
+            lambda: self.app.model.audio_devices(refresh=True),
+            self._bluetooth_audio_result,
+        )
+
+    def _bluetooth_audio_result(self, result: OperationResult) -> bool:
+        self._bluetooth_audio_busy = False
+        if not result.ok:
+            self._bluetooth_controller_registered = False
+            self._replace_bluetooth_devices([])
+            message = result.message or result.code or self.app.tr("common.unavailable")
+            self.bluetooth_notice.set(
+                self.app.tr("radio.bluetooth_audio_unavailable", {"reason": message})
+            )
+            self._update_bluetooth_actions()
+            return True
+        self._bluetooth_controller_registered = (
+            result.data.get("controller_registered") is True
+        )
+        devices = result.data.get("devices", [])
+        self._replace_bluetooth_devices(devices if isinstance(devices, list) else [])
+        if not self._bluetooth_controller_registered:
+            reason = str(result.data.get("reason") or "controller-not-registered")
+            reason_key = (
+                "radio.bluetooth_controller_not_registered"
+                if reason == "controller-not-registered"
+                else "radio.bluetooth_audio_stack_unavailable"
+                if reason == "audio-stack-unavailable"
+                else "radio.bluetooth_audio_unavailable"
+            )
+            self.bluetooth_notice.set(self.app.tr(reason_key, {"reason": reason}))
+        elif self._bluetooth_powered is False:
+            self.bluetooth_notice.set(self.app.tr("radio.bluetooth_power_to_scan"))
+        elif self._bluetooth_rows:
+            self.bluetooth_notice.set(
+                self.app.tr("radio.bluetooth_found", {"count": len(self._bluetooth_rows)})
+            )
+        else:
+            self.bluetooth_notice.set(self.app.tr("radio.bluetooth_scan_hint"))
+        self._update_bluetooth_actions()
+        return True
+
+    def _replace_bluetooth_devices(self, devices: list[dict[str, Any]]) -> None:
+        selected = self.selected_bluetooth_device()
+        selected_address = str(selected.get("address") or "") if selected else ""
         for item in self.bluetooth_tree.get_children():
             self.bluetooth_tree.delete(item)
         self._bluetooth_rows.clear()
-        raw_devices = values.get("discovered_devices", [])
-        devices = raw_devices if isinstance(raw_devices, list) else []
+        preferred_item = ""
         for index, raw in enumerate(devices):
             if not isinstance(raw, dict) or not raw.get("address"):
                 continue
             row = dict(raw)
             item = f"bluetooth-{index}"
             self._bluetooth_rows[item] = row
+            status_key = (
+                "common.connected"
+                if row.get("connected") is True
+                else "radio.paired"
+                if row.get("paired") is True
+                else "radio.not_paired"
+            )
             self.bluetooth_tree.insert(
                 "",
                 "end",
                 iid=item,
                 values=(
                     str(row.get("name") or row["address"]),
+                    self.app.tr(status_key),
                     str(row["address"]),
-                    str(row.get("rssi", "")),
                 ),
             )
-        discovery = str(values.get("discovery_control") or "unavailable")
-        powered = values.get("powered") is True
-        enabled = (
-            self._domain_available
-            and "action" in mutable
-            and discovery == "available"
-            and powered
+            if str(row["address"]) == selected_address:
+                preferred_item = item
+        if preferred_item:
+            self.bluetooth_tree.selection_set(preferred_item)
+            self.bluetooth_tree.focus(preferred_item)
+
+    def selected_bluetooth_device(self) -> dict[str, Any] | None:
+        selection = self.bluetooth_tree.selection()
+        return self._bluetooth_rows.get(str(selection[0])) if selection else None
+
+    def _update_bluetooth_actions(self) -> None:
+        if self.domain != "bluetooth":
+            return
+        row = self.selected_bluetooth_device()
+        usable = (
+            self._bluetooth_controller_registered
+            and self._bluetooth_powered is not False
+            and not self._bluetooth_audio_busy
         )
-        self.bluetooth_scan_button.configure(state="normal" if enabled else "disabled")
-        if discovery != "available":
-            self.bluetooth_notice.set(self.app.tr("radio.bluetooth_discovery_unavailable"))
-        elif not powered:
-            self.bluetooth_notice.set(self.app.tr("radio.bluetooth_power_to_scan"))
-        elif devices:
+        paired = bool(row and row.get("paired") is True)
+        connected = bool(row and row.get("connected") is True)
+        self.bluetooth_scan_button.configure(state="normal" if usable else "disabled")
+        self.bluetooth_pair_button.configure(
+            state="normal" if usable and row and not paired else "disabled"
+        )
+        self.bluetooth_connect_button.configure(
+            state="normal" if usable and row and paired and not connected else "disabled"
+        )
+        self.bluetooth_disconnect_button.configure(
+            state="normal" if usable and row and connected else "disabled"
+        )
+        self.bluetooth_forget_button.configure(
+            state="normal" if usable and row and paired else "disabled"
+        )
+
+    def scan_bluetooth(self) -> None:
+        if (
+            self.domain != "bluetooth"
+            or not self._bluetooth_controller_registered
+            or self._bluetooth_powered is False
+            or self._bluetooth_audio_busy
+        ):
+            return
+        self._bluetooth_audio_busy = True
+        self.bluetooth_notice.set(self.app.tr("radio.bluetooth_scanning"))
+        self._update_bluetooth_actions()
+        self.app.run_task(
+            self.app.tr("status.scanning_bluetooth"),
+            lambda: self.app.model.audio_scan_devices(15000),
+            lambda result: self._bluetooth_mutation_result(result, "scan"),
+        )
+
+    def bluetooth_device_action(self, action: str) -> None:
+        row = self.selected_bluetooth_device()
+        if (
+            row is None
+            or action not in {"pair", "connect", "disconnect", "forget"}
+            or not self._bluetooth_controller_registered
+            or self._bluetooth_powered is False
+            or self._bluetooth_audio_busy
+        ):
+            return
+        address = str(row.get("address") or "")
+        if action == "forget" and not messagebox.askyesno(
+            self.app.tr("radio.bluetooth_forget_title"),
+            self.app.tr(
+                "radio.bluetooth_forget_prompt",
+                {"device": str(row.get("name") or address)},
+            ),
+            icon="warning",
+            default=messagebox.NO,
+            parent=self.app.root,
+        ):
+            return
+        self._bluetooth_audio_busy = True
+        self.bluetooth_notice.set(
+            self.app.tr(
+                "radio.bluetooth_action_running",
+                {"action": self.app.tr(f"radio.{action}")},
+            )
+        )
+        self._update_bluetooth_actions()
+        self.app.run_task(
+            self.app.tr(
+                "status.bluetooth_action",
+                {"action": self.app.tr(f"radio.{action}")},
+            ),
+            lambda: self.app.model.audio_device_action(action, address),
+            lambda result: self._bluetooth_mutation_result(result, action),
+        )
+
+    def _bluetooth_mutation_result(
+        self,
+        result: OperationResult,
+        action: str,
+    ) -> bool:
+        self._bluetooth_audio_busy = False
+        if result.ok:
+            devices = result.data.get("devices", [])
+            self._replace_bluetooth_devices(devices if isinstance(devices, list) else [])
+            message_key = (
+                "radio.bluetooth_no_devices"
+                if action == "scan" and not self._bluetooth_rows
+                else "radio.bluetooth_scan_complete"
+                if action == "scan"
+                else "radio.bluetooth_action_complete"
+            )
             self.bluetooth_notice.set(
-                self.app.tr("radio.bluetooth_found", {"count": len(self._bluetooth_rows)})
+                self.app.tr(
+                    message_key,
+                    {
+                        "count": len(self._bluetooth_rows),
+                        "action": self.app.tr(f"radio.{action}"),
+                    },
+                )
             )
         else:
-            self.bluetooth_notice.set(self.app.tr("radio.bluetooth_scan_hint"))
+            message = result.message or result.code or self.app.tr("common.operation_failed")
+            if result.code == "AUDIO_UNAVAILABLE":
+                self._bluetooth_controller_registered = False
+            self.bluetooth_notice.set(
+                self.app.tr(
+                    "radio.bluetooth_action_failed",
+                    {
+                        "action": self.app.tr(f"radio.{action}"),
+                        "message": message,
+                    },
+                )
+            )
+            self.app.set_status(message, error=True)
+        self._update_bluetooth_actions()
+        return True
 
     def _update_network_actions(self) -> None:
         row = self.selected_network()
@@ -1712,6 +1961,8 @@ class RadioPage(BasePage):
             return True
         handled = self._state_result(result, device, generation)
         if result.ok:
+            if self.domain == "bluetooth" and action == "power":
+                self._refresh_bluetooth_audio()
             if action == "scan":
                 self.operation_notice.set(self.app.tr("radio.scan_refreshing"))
                 self.operation_notice_label.configure(style="Muted.TLabel")
@@ -1778,12 +2029,17 @@ class RadioPage(BasePage):
         self.forget_button.configure(state="disabled")
         self.password_entry.configure(state="disabled")
         self.bluetooth_scan_button.configure(state="disabled")
+        self.bluetooth_pair_button.configure(state="disabled")
+        self.bluetooth_connect_button.configure(state="disabled")
+        self.bluetooth_disconnect_button.configure(state="disabled")
+        self.bluetooth_forget_button.configure(state="disabled")
         self._network_actions_enabled = False
         if not keep_inventory:
             self._loaded_device = ""
             self._power_field = ""
             self._mutable = []
             self._domain_available = False
+            self._bluetooth_powered = None
             self._confirmed_power = None
             self._hard_blocked = False
             self._operation_error = ""
@@ -1817,6 +2073,520 @@ class BluetoothPage(RadioPage):
     domain = "bluetooth"
     title_key = "radio.bluetooth.title"
     note_key = "radio.bluetooth.note"
+
+    def external_audio_change(self) -> None:
+        if self.app._active_page == "bluetooth":
+            self._refresh_bluetooth_audio()
+        else:
+            self._loaded = False
+
+
+class AudioPage(BasePage):
+    """Role-backed audio controls; Bluetooth pairing stays on BluetoothPage."""
+
+    title_key = "audio.title"
+    note_key = "audio.note"
+
+    def __init__(self, parent: ttk.Frame, app: SettingsApplication) -> None:
+        super().__init__(parent, app)
+        self.state: dict[str, Any] = {}
+        self.outputs: dict[str, dict[str, Any]] = {}
+        self.surface = ScrollableSurface(self, background=PANEL)
+        self.surface.pack(fill="both", expand=True)
+        container = self.surface.content
+
+        self.status_title = tk.StringVar(value=app.tr("common.loading"))
+        self.status_body = tk.StringVar(value=app.tr("audio.not_loaded"))
+        self.status_card = MaterialStatusCard(
+            container,
+            title=self.status_title,
+            body=self.status_body,
+            compact=app.compact,
+        )
+        self.status_card.pack(fill="x", pady=(0, 8))
+
+        toolbar = ttk.Frame(container, style="Panel.TFrame")
+        toolbar.pack(fill="x", pady=(0, 8))
+        ttk.Button(
+            toolbar,
+            text=app.tr("common.refresh"),
+            command=self.refresh,
+        ).pack(side="left")
+        ttk.Button(
+            toolbar,
+            text=app.tr("audio.manage_bluetooth"),
+            command=lambda: app.show_page("bluetooth"),
+        ).pack(side="left", padx=(6, 0))
+
+        stack_card = tk.Frame(
+            container,
+            background=PANEL_ALT,
+            highlightbackground=OUTLINE,
+            highlightthickness=1,
+            padx=10,
+            pady=9,
+        )
+        stack_card.pack(fill="x", pady=(0, 8))
+        tk.Label(
+            stack_card,
+            text=app.tr("audio.stack"),
+            background=PANEL_ALT,
+            foreground=TEXT,
+            font=font_spec(stack_card, 10, "bold"),
+            anchor="w",
+        ).pack(fill="x")
+        self.stack_summary = tk.StringVar(value=app.tr("audio.stack_not_loaded"))
+        self.stack_label = tk.Label(
+            stack_card,
+            textvariable=self.stack_summary,
+            background=PANEL_ALT,
+            foreground=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=276 if app.compact else 650,
+        )
+        self.stack_label.pack(fill="x", pady=(4, 0))
+        self.stack_label.bind(
+            "<Configure>",
+            lambda event: self.stack_label.configure(
+                wraplength=text_wrap_length(int(event.width), horizontal_padding=4)
+            ),
+        )
+
+        ttk.Label(
+            container,
+            text=app.tr("audio.outputs"),
+            style="Panel.TLabel",
+        ).pack(anchor="w", pady=(0, 4))
+        output_frame = ttk.Frame(container, style="Panel.TFrame")
+        output_frame.pack(fill="x")
+        self.output_tree = ttk.Treeview(
+            output_frame,
+            columns=("name", "volume", "status"),
+            show="headings",
+            height=3 if app.compact else 5,
+            selectmode="browse",
+        )
+        self.output_tree.heading("name", text=app.tr("audio.output"))
+        self.output_tree.heading("volume", text=app.tr("audio.volume"))
+        self.output_tree.heading("status", text=app.tr("common.status"))
+        self.output_tree.column("name", width=175 if app.compact else 350, anchor="w")
+        self.output_tree.column("volume", width=70, anchor="center")
+        self.output_tree.column("status", width=120, anchor="w")
+        if app.compact:
+            self.output_tree.configure(displaycolumns=("name", "volume"))
+        output_scroll = ttk.Scrollbar(
+            output_frame,
+            orient="vertical",
+            command=self.output_tree.yview,
+        )
+        self.output_tree.configure(yscrollcommand=output_scroll.set)
+        self.output_tree.pack(side="left", fill="x", expand=True)
+        output_scroll.pack(side="right", fill="y")
+        self.output_tree.bind("<<TreeviewSelect>>", self._selected_output)
+        self.output_notice = tk.StringVar(value=app.tr("audio.no_outputs"))
+        self.output_notice_label = ttk.Label(
+            container,
+            textvariable=self.output_notice,
+            style="Muted.TLabel",
+            justify="left",
+            wraplength=276 if app.compact else 650,
+        )
+        self.output_notice_label.pack(anchor="w", fill="x", pady=(4, 6))
+        self.output_notice_label.bind(
+            "<Configure>",
+            lambda event: self.output_notice_label.configure(
+                wraplength=text_wrap_length(int(event.width), horizontal_padding=4)
+            ),
+        )
+
+        output_actions = ttk.Frame(container, style="Panel.TFrame")
+        output_actions.pack(fill="x", pady=(0, 8))
+        self.select_button = ttk.Button(
+            output_actions,
+            text=app.tr("audio.use_output"),
+            command=self.select_output,
+            state="disabled",
+        )
+        self.select_button.pack(fill="x" if app.compact else "none", side="top" if app.compact else "left")
+
+        volume_card = tk.Frame(
+            container,
+            background=PANEL_ALT,
+            highlightbackground=OUTLINE,
+            highlightthickness=1,
+            padx=10,
+            pady=9,
+        )
+        volume_card.pack(fill="x", pady=(0, 8))
+        tk.Label(
+            volume_card,
+            text=app.tr("audio.volume_and_mute"),
+            background=PANEL_ALT,
+            foreground=TEXT,
+            font=font_spec(volume_card, 10, "bold"),
+            anchor="w",
+        ).pack(fill="x")
+        self.volume_text = tk.StringVar(value=app.tr("common.unavailable"))
+        tk.Label(
+            volume_card,
+            textvariable=self.volume_text,
+            background=PANEL_ALT,
+            foreground=MUTED,
+            anchor="w",
+        ).pack(fill="x", pady=(3, 5))
+        volume_actions = ttk.Frame(volume_card, style="Panel.TFrame")
+        volume_actions.pack(fill="x")
+        self.volume_down = ttk.Button(
+            volume_actions,
+            text=app.tr("audio.volume_down"),
+            command=lambda: self.adjust_volume(-10),
+            state="disabled",
+        )
+        self.volume_down.pack(side="left", fill="x", expand=app.compact)
+        self.volume_up = ttk.Button(
+            volume_actions,
+            text=app.tr("audio.volume_up"),
+            command=lambda: self.adjust_volume(10),
+            state="disabled",
+        )
+        self.volume_up.pack(side="left", fill="x", expand=app.compact, padx=(6, 0))
+        mute_actions = volume_actions
+        if app.compact:
+            mute_actions = ttk.Frame(volume_card, style="Panel.TFrame")
+            mute_actions.pack(fill="x", pady=(6, 0))
+        self.muted = tk.BooleanVar(value=False)
+        self.mute_button = ttk.Checkbutton(
+            mute_actions,
+            text=app.tr("audio.muted"),
+            variable=self.muted,
+            command=self.apply_muted,
+            state="disabled",
+        )
+        self.mute_button.pack(
+            side="left",
+            fill="x" if app.compact else "none",
+            padx=(0 if app.compact else 6, 0),
+        )
+
+        player_card = tk.Frame(
+            container,
+            background=PANEL_ALT,
+            highlightbackground=OUTLINE,
+            highlightthickness=1,
+            padx=10,
+            pady=9,
+        )
+        player_card.pack(fill="x", pady=(0, 8))
+        tk.Label(
+            player_card,
+            text=app.tr("audio.player"),
+            background=PANEL_ALT,
+            foreground=TEXT,
+            font=font_spec(player_card, 10, "bold"),
+            anchor="w",
+        ).pack(fill="x")
+        self.player_status = tk.StringVar(value=app.tr("audio.player_not_loaded"))
+        player_status_label = tk.Label(
+            player_card,
+            textvariable=self.player_status,
+            background=PANEL_ALT,
+            foreground=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=276 if app.compact else 650,
+        )
+        player_status_label.pack(fill="x", pady=(3, 5))
+        player_status_label.bind(
+            "<Configure>",
+            lambda event: player_status_label.configure(
+                wraplength=text_wrap_length(int(event.width), horizontal_padding=4)
+            ),
+        )
+        self.player_enabled = tk.BooleanVar(value=False)
+        self.player_toggle = ttk.Checkbutton(
+            player_card,
+            text=app.tr("audio.player_enabled"),
+            variable=self.player_enabled,
+        )
+        self.player_toggle.pack(anchor="w")
+        self.player_server = tk.StringVar()
+        self.player_name = tk.StringVar(value="MSYS Audio")
+        self._entry_row(
+            player_card,
+            app.tr("audio.player_server"),
+            self.player_server,
+        )
+        self._entry_row(
+            player_card,
+            app.tr("audio.player_name"),
+            self.player_name,
+        )
+        self.player_apply = ttk.Button(
+            player_card,
+            text=app.tr("audio.save_player"),
+            command=self.configure_player,
+            state="disabled",
+        )
+        self.player_apply.pack(fill="x" if app.compact else "none", anchor="w", pady=(7, 0))
+
+    def _entry_row(
+        self,
+        parent: tk.Frame,
+        label: str,
+        variable: tk.StringVar,
+    ) -> None:
+        row = ttk.Frame(parent, style="Panel.TFrame")
+        row.pack(fill="x", pady=(4, 0))
+        ttk.Label(row, text=label, style="Muted.TLabel").pack(
+            anchor="w",
+            side="top" if self.app.compact else "left",
+        )
+        ttk.Entry(row, textvariable=variable).pack(
+            side="top" if self.app.compact else "left",
+            fill="x",
+            expand=True,
+            padx=(0, 0) if self.app.compact else (8, 0),
+            pady=(2, 0) if self.app.compact else 0,
+        )
+
+    def refresh(self) -> None:
+        self._disable_output_controls()
+        self.player_apply.configure(state="disabled")
+        self.app.run_task(
+            self.app.tr("status.loading_audio"),
+            lambda: self.app.model.audio_state(refresh=True),
+            self._state_result,
+        )
+
+    def _state_result(self, result: OperationResult) -> bool:
+        if not result.ok:
+            self.state = {}
+            self.outputs.clear()
+            self._clear_outputs()
+            self.status_title.set(self.app.tr("audio.unavailable"))
+            self.status_body.set(result.message or result.code or self.app.tr("audio.unavailable"))
+            self.status_card.set_color(ERROR_CONTAINER)
+            self.stack_summary.set(self.app.tr("audio.stack_unavailable"))
+            self.output_notice.set(self.app.tr("audio.no_outputs"))
+            self.player_status.set(self.app.tr("audio.player_unavailable"))
+            self._disable_output_controls()
+            self.player_apply.configure(state="disabled")
+            self.app.set_status(
+                result.message or result.code or self.app.tr("audio.unavailable"),
+                error=True,
+            )
+            return True
+
+        self.state = result.data
+        reason = str(result.data.get("reason") or "")
+        reason_key = {
+            "audio-stack-unavailable": "audio.reason_stack",
+            "controller-not-registered": "audio.reason_controller",
+            "no-connected-a2dp-output": "audio.reason_no_output",
+        }.get(reason)
+        reason_text = self.app.tr(reason_key) if reason_key else reason
+        available = result.data.get("available") is True
+        self.status_title.set(
+            self.app.tr("audio.ready" if available else "audio.unavailable")
+        )
+        self.status_body.set(
+            self.app.tr(
+                "audio.status_ready" if available else "audio.status_unavailable",
+                {
+                    "backend": str(result.data.get("backend") or ""),
+                    "reason": reason_text or self.app.tr("common.unavailable"),
+                },
+            )
+        )
+        self.status_card.set_color(SUCCESS_CONTAINER if available else ERROR_CONTAINER)
+        self._render_stack(result.data.get("stack", []))
+        self._render_outputs(result.data.get("outputs", []))
+        player = result.data.get("player", {})
+        self.player_enabled.set(player.get("enabled") is True)
+        self.player_server.set(str(player.get("server") or ""))
+        self.player_name.set(str(player.get("name") or "MSYS Audio"))
+        self.player_status.set(
+            self.app.tr(
+                "audio.player_status",
+                {
+                    "enabled": self.app.tr(
+                        "common.enabled" if player.get("enabled") else "common.disabled"
+                    ),
+                    "running": self.app.tr(
+                        "audio.running" if player.get("running") else "audio.stopped"
+                    ),
+                },
+            )
+        )
+        self.player_apply.configure(state="normal")
+        self.app.set_status(self.app.tr("common.ready"))
+        return True
+
+    def _render_stack(self, rows: object) -> None:
+        stack = rows if isinstance(rows, list) else []
+        if not stack:
+            self.stack_summary.set(self.app.tr("audio.stack_unavailable"))
+            return
+        rendered = []
+        for row in stack:
+            if not isinstance(row, dict):
+                continue
+            status = self.app.tr(
+                "audio.running" if row.get("running") else "audio.stopped"
+            )
+            if row.get("returncode") is not None:
+                status += " · " + self.app.tr(
+                    "audio.returncode", {"code": int(row["returncode"])}
+                )
+            rendered.append(f"{row.get('name', '')}: {status}")
+        self.stack_summary.set("\n".join(rendered))
+
+    def _clear_outputs(self) -> None:
+        for item in self.output_tree.get_children():
+            self.output_tree.delete(item)
+
+    def _render_outputs(self, rows: object) -> None:
+        self._clear_outputs()
+        self.outputs.clear()
+        outputs = rows if isinstance(rows, list) else []
+        active = str(self.state.get("active_output") or "")
+        selected = ""
+        for row in outputs:
+            if not isinstance(row, dict):
+                continue
+            identifier = str(row.get("id") or "")
+            if not identifier:
+                continue
+            self.outputs[identifier] = row
+            volume = row.get("volume_percent")
+            volume_text = "—" if volume is None else f"{volume}%"
+            status = self.app.tr(
+                "audio.active" if identifier == active else "common.connected"
+            )
+            self.output_tree.insert(
+                "",
+                "end",
+                iid=identifier,
+                values=(str(row.get("name") or identifier), volume_text, status),
+            )
+            if identifier == active:
+                selected = identifier
+        if not selected and self.outputs:
+            selected = next(iter(self.outputs))
+        if selected:
+            self.output_tree.selection_set(selected)
+            self.output_tree.focus(selected)
+            self.output_notice.set(self.app.tr("audio.select_hint"))
+        else:
+            self.output_notice.set(self.app.tr("audio.no_outputs"))
+        self._update_output_controls()
+
+    def selected_output(self) -> tuple[str, dict[str, Any] | None]:
+        selection = self.output_tree.selection()
+        identifier = str(selection[0]) if selection else ""
+        return identifier, self.outputs.get(identifier)
+
+    def _selected_output(self, _event: Any = None) -> None:
+        self._update_output_controls()
+
+    def _disable_output_controls(self) -> None:
+        self.select_button.configure(state="disabled")
+        self.volume_down.configure(state="disabled")
+        self.volume_up.configure(state="disabled")
+        self.mute_button.configure(state="disabled")
+
+    def _update_output_controls(self) -> None:
+        identifier, output = self.selected_output()
+        if output is None:
+            self.volume_text.set(self.app.tr("common.unavailable"))
+            self._disable_output_controls()
+            return
+        active = identifier == str(self.state.get("active_output") or "")
+        volume = output.get("volume_percent")
+        muted = output.get("muted")
+        mixer = bool(output.get("mixer_control"))
+        volume_label = (
+            f"{int(volume)}%"
+            if isinstance(volume, int)
+            else self.app.tr("common.unavailable")
+        )
+        mute_label = (
+            self.app.tr("audio.muted" if muted else "audio.unmuted")
+            if isinstance(muted, bool)
+            else self.app.tr("common.unavailable")
+        )
+        self.volume_text.set(
+            self.app.tr(
+                "audio.volume_value",
+                {
+                    "volume": volume_label,
+                    "mute": mute_label,
+                },
+            )
+        )
+        if isinstance(muted, bool):
+            self.muted.set(muted)
+        self.select_button.configure(state="disabled" if active else "normal")
+        volume_state = "normal" if mixer and isinstance(volume, int) else "disabled"
+        self.volume_down.configure(state=volume_state)
+        self.volume_up.configure(state=volume_state)
+        self.mute_button.configure(
+            state="normal" if mixer and isinstance(muted, bool) else "disabled"
+        )
+
+    def _run_state_change(
+        self,
+        label: str,
+        operation: Callable[[], OperationResult],
+    ) -> None:
+        self._disable_output_controls()
+        self.player_apply.configure(state="disabled")
+        self.app.run_task(label, operation, self._state_result)
+
+    def select_output(self) -> None:
+        identifier, _output = self.selected_output()
+        if not identifier:
+            return
+        self._run_state_change(
+            self.app.tr("status.selecting_audio_output"),
+            lambda: self.app.model.audio_select_output(identifier),
+        )
+
+    def adjust_volume(self, delta: int) -> None:
+        identifier, output = self.selected_output()
+        if output is None or not isinstance(output.get("volume_percent"), int):
+            return
+        percent = max(0, min(100, int(output["volume_percent"]) + delta))
+        self._run_state_change(
+            self.app.tr("status.setting_audio_volume"),
+            lambda: self.app.model.audio_set_volume(percent, identifier),
+        )
+
+    def apply_muted(self) -> None:
+        identifier, output = self.selected_output()
+        if output is None:
+            return
+        requested = bool(self.muted.get())
+        self._run_state_change(
+            self.app.tr("status.setting_audio_mute"),
+            lambda: self.app.model.audio_set_muted(requested, identifier),
+        )
+
+    def configure_player(self) -> None:
+        enabled = bool(self.player_enabled.get())
+        server = self.player_server.get().strip()
+        name = self.player_name.get().strip()
+        self._run_state_change(
+            self.app.tr("status.saving_audio_player"),
+            lambda: self.app.model.audio_configure_player(enabled, server, name),
+        )
+
+    def external_change(self) -> None:
+        if self.app._active_page == "audio":
+            self.refresh()
+        else:
+            self._loaded = False
 
 
 class LayoutPage(BasePage):

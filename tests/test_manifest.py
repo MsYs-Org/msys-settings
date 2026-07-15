@@ -19,7 +19,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.2.14")
+        self.assertEqual(__version__, "0.2.18")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -64,6 +64,7 @@ class ManifestTests(unittest.TestCase):
                 "display",
                 "wifi",
                 "bluetooth",
+                "audio",
                 "appearance",
                 "apps",
                 "roles",
@@ -80,12 +81,14 @@ class ManifestTests(unittest.TestCase):
             "mipc.call:role:update-agent",
             "mipc.call:role:install-agent",
             "mipc.call:role:input-method",
+            "mipc.call:role:audio-manager",
             "mipc.call:org.msys.hal.manager.v1",
             "mipc.call:org.msys.hal.ch347-control.v1",
             "mipc.event:subscribe:msys.activation",
             "mipc.event:subscribe:msys.hal.changed",
             "mipc.event:subscribe:msys.shell.preferences.changed",
             "mipc.event:subscribe:msys.display.migration",
+            "mipc.event:subscribe:msys.audio.changed",
         }.issubset(permissions))
         event_topics = {
             "msys.activation",
@@ -97,6 +100,7 @@ class ManifestTests(unittest.TestCase):
             "msys.install.package_changed",
             "msys.install.error",
             "msys.display.migration",
+            "msys.audio.changed",
         }
         self.assertTrue(
             {

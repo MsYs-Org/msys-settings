@@ -18,6 +18,9 @@ CH347_CONTROL_TIMEOUT = 60.0
 UPDATE_AGENT = "role:update-agent"
 INSTALL_AGENT = "role:install-agent"
 INPUT_METHOD = "role:input-method"
+AUDIO_MANAGER = "role:audio-manager"
+AUDIO_READ_TIMEOUT = 20.0
+AUDIO_WRITE_TIMEOUT = 45.0
 
 
 class RpcClient(Protocol):
@@ -81,6 +84,78 @@ class SettingsClient:
             "toggle",
             {},
             timeout=8.0,
+        )
+
+    def audio_get_state(self, *, refresh: bool = False) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "get_state",
+            {"refresh": refresh},
+            timeout=AUDIO_READ_TIMEOUT,
+            idempotent=True,
+        )
+
+    def audio_list_devices(self, *, refresh: bool = False) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "list_devices",
+            {"refresh": refresh},
+            timeout=AUDIO_READ_TIMEOUT,
+            idempotent=True,
+        )
+
+    def audio_scan(self, *, timeout_ms: int = 15000) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "scan",
+            {"timeout_ms": timeout_ms},
+            timeout=AUDIO_WRITE_TIMEOUT,
+        )
+
+    def audio_device_action(
+        self,
+        action: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if action not in {"pair", "connect", "disconnect", "forget"}:
+            raise ValueError("Unsupported Bluetooth audio action")
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            action,
+            payload,
+            timeout=AUDIO_WRITE_TIMEOUT,
+        )
+
+    def audio_set_volume(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "set_volume",
+            payload,
+            timeout=AUDIO_WRITE_TIMEOUT,
+        )
+
+    def audio_set_muted(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "set_muted",
+            payload,
+            timeout=AUDIO_WRITE_TIMEOUT,
+        )
+
+    def audio_select_output(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "select_output",
+            payload,
+            timeout=AUDIO_WRITE_TIMEOUT,
+        )
+
+    def audio_configure_player(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.rpc.call(
+            AUDIO_MANAGER,
+            "configure_player",
+            payload,
+            timeout=AUDIO_WRITE_TIMEOUT,
         )
 
     def get_layout(self) -> dict[str, Any]:

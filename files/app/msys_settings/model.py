@@ -7,6 +7,15 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .audio import (
+    bluetooth_address_request,
+    muted_request,
+    normalise_audio_devices,
+    normalise_audio_state,
+    output_request,
+    player_request,
+    volume_request,
+)
 from .client import SettingsClient
 from .ipc import MipcRemoteError
 
@@ -694,6 +703,161 @@ class SettingsModel:
     def toggle_input_method(self) -> OperationResult:
         result = self._safe(self.client.toggle_input_method)
         return _normalise_input_method_result(result)
+
+    @staticmethod
+    def _normalise_audio_result(result: OperationResult) -> OperationResult:
+        if not result.ok:
+            return result
+        try:
+            result.data = normalise_audio_state(result.data)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(
+                False,
+                {"response": result.data},
+                str(exc),
+                "AUDIO_BAD_RESPONSE",
+            )
+        return result
+
+    def audio_state(self, *, refresh: bool = True) -> OperationResult:
+        result = self._safe(
+            lambda: self.client.audio_get_state(refresh=refresh)
+        )
+        return self._normalise_audio_result(result)
+
+    @staticmethod
+    def _normalise_audio_devices_result(
+        result: OperationResult,
+        *,
+        action_response: bool = False,
+    ) -> OperationResult:
+        if not result.ok:
+            return result
+        payload = result.data
+        if action_response and isinstance(payload, dict):
+            payload = {
+                "schema": "msys.audio-devices.v1",
+                "devices": payload.get("devices"),
+            }
+        try:
+            result.data = normalise_audio_devices(payload)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(
+                False,
+                {"response": result.data},
+                str(exc),
+                "AUDIO_BAD_RESPONSE",
+            )
+        return result
+
+    def audio_devices(self, *, refresh: bool = True) -> OperationResult:
+        state = self.audio_state(refresh=refresh)
+        if not state.ok:
+            return state
+        controller_registered = state.data.get("controller_registered") is True
+        if not controller_registered:
+            return OperationResult(
+                True,
+                {
+                    "schema": "msys.audio-devices.v1",
+                    "devices": [],
+                    "controller_registered": False,
+                    "reason": str(state.data.get("reason") or "controller-not-registered"),
+                    "backend": str(state.data.get("backend") or ""),
+                },
+            )
+        result = self._normalise_audio_devices_result(
+            self._safe(lambda: self.client.audio_list_devices(refresh=refresh))
+        )
+        if result.ok:
+            result.data.update(
+                {
+                    "controller_registered": True,
+                    "reason": state.data.get("reason"),
+                    "backend": state.data.get("backend"),
+                }
+            )
+        return result
+
+    def audio_scan_devices(self, timeout_ms: object = 15000) -> OperationResult:
+        if (
+            isinstance(timeout_ms, bool)
+            or not isinstance(timeout_ms, int)
+            or not 1000 <= timeout_ms <= 30000
+        ):
+            return OperationResult(
+                False,
+                message="Bluetooth scan timeout must be 1000..30000 ms",
+                code="AUDIO_BAD_PAYLOAD",
+            )
+        return self._normalise_audio_devices_result(
+            self._safe(lambda: self.client.audio_scan(timeout_ms=timeout_ms))
+        )
+
+    def audio_device_action(self, action: str, address: object) -> OperationResult:
+        if action not in {"pair", "connect", "disconnect", "forget"}:
+            return OperationResult(
+                False,
+                message="Unsupported Bluetooth audio action",
+                code="AUDIO_BAD_PAYLOAD",
+            )
+        try:
+            payload = bluetooth_address_request(address)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(False, message=str(exc), code="AUDIO_BAD_PAYLOAD")
+        return self._normalise_audio_devices_result(
+            self._safe(lambda: self.client.audio_device_action(action, payload)),
+            action_response=True,
+        )
+
+    def audio_set_volume(
+        self,
+        percent: object,
+        output: str = "",
+    ) -> OperationResult:
+        try:
+            payload = volume_request(percent, output)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(False, message=str(exc), code="AUDIO_BAD_PAYLOAD")
+        return self._normalise_audio_result(
+            self._safe(lambda: self.client.audio_set_volume(payload))
+        )
+
+    def audio_set_muted(
+        self,
+        muted: object,
+        output: str = "",
+    ) -> OperationResult:
+        try:
+            payload = muted_request(muted, output)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(False, message=str(exc), code="AUDIO_BAD_PAYLOAD")
+        return self._normalise_audio_result(
+            self._safe(lambda: self.client.audio_set_muted(payload))
+        )
+
+    def audio_select_output(self, output: str) -> OperationResult:
+        try:
+            payload = output_request(output)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(False, message=str(exc), code="AUDIO_BAD_PAYLOAD")
+        return self._normalise_audio_result(
+            self._safe(lambda: self.client.audio_select_output(payload))
+        )
+
+    def audio_configure_player(
+        self,
+        enabled: object,
+        server: object,
+        name: object,
+    ) -> OperationResult:
+        try:
+            payload = player_request(enabled, server, name)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(False, message=str(exc), code="AUDIO_BAD_PAYLOAD")
+        return self._normalise_audio_result(
+            self._safe(lambda: self.client.audio_configure_player(payload))
+        )
 
     def hal_inventory(self, *, refresh: bool = True) -> OperationResult:
         inventory = self._safe(lambda: self.client.hal_inventory(refresh=refresh))
