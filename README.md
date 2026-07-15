@@ -1,5 +1,20 @@
 # MSYS Settings
 
+## 0.2.23 touch lists and regional settings
+
+Every long Settings page now uses the same direct-touch scrolling surface,
+larger list rows, wrapped text, and full-width compact actions at 320×480.
+Language and time zone are grouped on one phone/Win11-style secondary page.
+The selected Settings language is persisted as UTF-8 JSON and is applied by
+rebuilding the UI immediately; the same state and mutations are available
+through the nonexclusive `org.msys.settings.regional.v1` component interface.
+
+Time-zone changes use the standard POSIX zoneinfo file contract only: a
+validated entry below `/usr/share/zoneinfo` atomically replaces the
+`/etc/localtime` symlink. There is no systemd, D-Bus, package-manager, locale
+daemon, or fabricated fallback. If the database or write capability is absent,
+the action is disabled and Settings reports the real unavailable reason.
+
 ## 0.2.22 capability-gated touch cursor
 
 Display diagnostics now exposes CH347 touch-cursor drawing as an independent

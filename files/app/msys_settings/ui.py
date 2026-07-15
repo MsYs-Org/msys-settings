@@ -39,6 +39,7 @@ from .radio import (
     wifi_network_rows,
 )
 from .responsive import filter_navigation, layout_metrics, text_wrap_length
+from .regional import LANGUAGES, RegionalSettingsStore
 from .theme import (
     ACCENT,
     ACCENT_CONTAINER,
@@ -208,9 +209,14 @@ class SettingsApplication:
         *,
         defer_initial_refresh: bool = False,
         i18n: SettingsI18n | None = None,
+        regional_store: RegionalSettingsStore | None = None,
     ) -> None:
         self.model = model
-        self.i18n = i18n or SettingsI18n()
+        self.regional_store = regional_store or RegionalSettingsStore()
+        stored_language = self.regional_store.load().get("language", "system")
+        self.i18n = i18n or SettingsI18n(
+            locale=None if stored_language == "system" else stored_language
+        )
         # A supervised component uses one private socket reader for both
         # events and RPC replies. The application must exist before that
         # reader can receive ``post_event`` as its callback, so main()
@@ -305,7 +311,7 @@ class SettingsApplication:
             background=FIELD_BG,
             fieldbackground=FIELD_BG,
             foreground=TEXT,
-            rowheight=26 if self.compact else 32,
+            rowheight=34 if self.compact else 38,
         )
         style.configure("Treeview.Heading", background=PANEL_ALT, foreground=TEXT, padding=6)
         style.map("Treeview", background=[("selected", ACCENT)], foreground=[("selected", "#ffffff")])
@@ -383,6 +389,7 @@ class SettingsApplication:
             ("roles", "nav.roles", RolesPage),
             ("hal", "nav.hal", HalPage),
             ("updates", "nav.updates", UpdatesPage),
+            ("regional", "nav.regional", RegionalPage),
             ("system", "nav.system", SystemPage),
         ]
         self._nav_entries = tuple(
@@ -507,6 +514,28 @@ class SettingsApplication:
         """Run the language-neutral application navigation call on Tk's thread."""
 
         method = str(message.get("method") or "")
+        if method == "get_regional_settings":
+            return {"ok": True, **self.regional_store.status()}
+        if method in {"set_language", "set_timezone"}:
+            payload = message.get("payload", {})
+            if not isinstance(payload, dict):
+                return {
+                    "ok": False,
+                    "schema": "msys.settings.regional.v1",
+                    "code": "BAD_REQUEST",
+                    "message": "payload must be an object",
+                }
+            reply: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
+            self._ui_queue.put(("regional", (method, payload), reply))
+            try:
+                return reply.get(timeout=2.0)
+            except queue.Empty:
+                return {
+                    "ok": False,
+                    "schema": "msys.settings.regional.v1",
+                    "code": "UI_TIMEOUT",
+                    "message": "regional settings UI timed out",
+                }
         if method != "navigation_back":
             return {"handled": False, "reason": "method-not-supported"}
         reply: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
@@ -624,6 +653,14 @@ class SettingsApplication:
                     reply.put_nowait(result)
                 except queue.Full:
                     pass
+            elif kind == "regional":
+                method, payload = first
+                reply = second
+                result = self._apply_regional_call(str(method), payload)
+                try:
+                    reply.put_nowait(result)
+                except queue.Full:
+                    pass
             elif kind == "event":
                 event: dict[str, Any] = first
                 topic = str(event.get("topic", ""))
@@ -685,6 +722,68 @@ class SettingsApplication:
                 if not status_handled:
                     self.set_status(topic or self.tr("status.event"))
         self.root.after(50, self._poll_queue)
+
+    def _apply_regional_call(
+        self,
+        method: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            if method == "set_language":
+                language = payload.get("language")
+                if not isinstance(language, str) or language not in LANGUAGES:
+                    raise ValueError("unsupported language")
+                state = self.regional_store.set_language(language)
+                self.i18n = SettingsI18n(
+                    locale=None if language == "system" else language
+                )
+                self._rebuild_shell("regional")
+            elif method == "set_timezone":
+                timezone = payload.get("timezone")
+                if not isinstance(timezone, str):
+                    raise ValueError("timezone must be a string")
+                state = self.regional_store.set_timezone(timezone)
+                regional = self._pages.get("regional")
+                if isinstance(regional, RegionalPage):
+                    regional.refresh()
+            else:
+                raise ValueError("unsupported regional method")
+            return {"ok": True, **state}
+        except (OSError, ValueError) as exc:
+            return {
+                "ok": False,
+                "schema": "msys.settings.regional.v1",
+                "code": (
+                    "BAD_REQUEST" if isinstance(exc, ValueError)
+                    else "REGIONAL_UNAVAILABLE"
+                ),
+                "message": str(exc),
+            }
+
+    def _rebuild_shell(self, target: str) -> None:
+        if self._nav_filter_after is not None:
+            try:
+                self.root.after_cancel(self._nav_filter_after)
+            except tk.TclError:
+                pass
+            self._nav_filter_after = None
+        for child in self.root.winfo_children():
+            child.destroy()
+        self._pages = {}
+        self._nav_buttons = {}
+        self._page_titles = {}
+        self._nav_visible = frozenset()
+        self._page_history = []
+        self._active_page = ""
+        refresh_enabled = self._initial_refresh_enabled
+        self._initial_refresh_enabled = False
+        self.root.title(self.tr("app.title"))
+        self._build_style()
+        self._build_shell()
+        self._initial_refresh_enabled = refresh_enabled
+        if target in self._pages:
+            self.show_page(target, record_history=False)
+        self.set_status(self.tr("regional.language_applied"))
 
     def run(self) -> None:
         self.root.mainloop()
@@ -818,6 +917,7 @@ class HomePage(BasePage):
             ("roles", "R", "nav.roles", "home.roles.note"),
             ("hal", "H", "nav.hal", "home.hal.note"),
             ("updates", "U", "nav.updates", "home.updates.note"),
+            ("regional", "G", "nav.regional", "home.regional.note"),
             ("system", "S", "nav.system", "home.system.note"),
         )
         for key, icon, title_key, note_key in more_items:
@@ -878,6 +978,160 @@ class HomePage(BasePage):
             font=font_spec(parent, 10, "bold"),
             anchor="w",
         ).pack(fill="x", padx=padding, pady=(8, 7))
+
+
+class RegionalPage(BasePage):
+    """Unified phone/desktop language and timezone secondary page."""
+
+    title_key = "regional.title"
+    note_key = "regional.note"
+
+    def __init__(self, parent: ttk.Frame, app: SettingsApplication) -> None:
+        super().__init__(parent, app)
+        self.surface = ScrollableSurface(self, background=PANEL)
+        self.surface.pack(fill="both", expand=True)
+        content = self.surface.content
+        self.summary_title = tk.StringVar(value=app.tr("common.loading"))
+        self.summary_body = tk.StringVar(value=app.tr("common.not_loaded"))
+        MaterialStatusCard(
+            content,
+            title=self.summary_title,
+            body=self.summary_body,
+            compact=app.compact,
+        ).pack(fill="x", pady=(0, 10))
+
+        self.language_labels = {
+            "system": app.tr("regional.language_system"),
+            "zh-CN": app.tr("regional.language_chinese"),
+            "en-US": app.tr("regional.language_english"),
+        }
+        language_card = ttk.LabelFrame(
+            content,
+            text=app.tr("regional.language"),
+            padding=(12, 10),
+        )
+        language_card.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            language_card,
+            text=app.tr("regional.language_hint"),
+            style="Panel.TLabel",
+            wraplength=280 if app.compact else 680,
+            justify="left",
+        ).pack(fill="x", pady=(0, 8))
+        self.language = tk.StringVar()
+        self.language_combo = ttk.Combobox(
+            language_card,
+            textvariable=self.language,
+            values=list(self.language_labels.values()),
+            state="readonly",
+        )
+        self.language_combo.pack(fill="x", pady=(0, 8))
+        self.language_apply = ttk.Button(
+            language_card,
+            text=app.tr("regional.apply_language"),
+            command=self.apply_language,
+            style="Accent.TButton",
+        )
+        self.language_apply.pack(fill="x" if app.compact else "none", anchor="e")
+
+        timezone_card = ttk.LabelFrame(
+            content,
+            text=app.tr("regional.timezone"),
+            padding=(12, 10),
+        )
+        timezone_card.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            timezone_card,
+            text=app.tr("regional.timezone_hint"),
+            style="Panel.TLabel",
+            wraplength=280 if app.compact else 680,
+            justify="left",
+        ).pack(fill="x", pady=(0, 8))
+        self.timezone = tk.StringVar()
+        self.timezone_combo = ttk.Combobox(
+            timezone_card,
+            textvariable=self.timezone,
+            state="readonly",
+        )
+        self.timezone_combo.pack(fill="x", pady=(0, 8))
+        self.timezone_apply = ttk.Button(
+            timezone_card,
+            text=app.tr("regional.apply_timezone"),
+            command=self.apply_timezone,
+            style="Accent.TButton",
+        )
+        self.timezone_apply.pack(fill="x" if app.compact else "none", anchor="e")
+        self.unavailable = ttk.Label(
+            timezone_card,
+            style="Muted.TLabel",
+            justify="left",
+            wraplength=280 if app.compact else 680,
+        )
+
+    def on_show(self) -> None:
+        self._loaded = True
+        self.refresh()
+
+    def refresh(self) -> None:
+        state = self.app.regional_store.status()
+        language = str(state.get("language") or "system")
+        timezone = str(state.get("timezone") or "")
+        self.language.set(self.language_labels.get(language, self.language_labels["system"]))
+        values = [str(item) for item in state.get("timezones", [])]
+        self.timezone_combo.configure(values=values)
+        self.timezone.set(timezone if timezone in values else (values[0] if values else ""))
+        writable = state.get("timezone_writable") is True and bool(values)
+        self.timezone_apply.configure(state="normal" if writable else "disabled")
+        reason = str(state.get("timezone_reason") or "")
+        if writable:
+            self.unavailable.pack_forget()
+        else:
+            reason_key = {
+                "zoneinfo-unavailable": "regional.timezone_reason_zoneinfo",
+                "localtime-directory-unavailable": "regional.timezone_reason_directory",
+                "localtime-path-invalid": "regional.timezone_reason_invalid_path",
+                "localtime-read-only": "regional.timezone_reason_read_only",
+            }.get(str(state.get("timezone_reason_code") or ""))
+            localized_reason = (
+                self.app.tr(reason_key, fallback=reason)
+                if reason_key is not None
+                else reason or self.app.tr("common.unavailable")
+            )
+            self.unavailable.configure(
+                text=self.app.tr(
+                    "regional.timezone_unavailable",
+                    {"reason": localized_reason},
+                )
+            )
+            self.unavailable.pack(fill="x", pady=(8, 0))
+        self.summary_title.set(self.app.tr("regional.summary_title"))
+        self.summary_body.set(
+            self.app.tr(
+                "regional.summary",
+                {
+                    "language": self.language_labels.get(language, language),
+                    "timezone": timezone or self.app.tr("common.unavailable"),
+                },
+            )
+        )
+
+    def apply_language(self) -> None:
+        reverse = {label: key for key, label in self.language_labels.items()}
+        selected = reverse.get(self.language.get())
+        result = self.app._apply_regional_call(
+            "set_language", {"language": selected}
+        )
+        if not result.get("ok"):
+            self.app.set_status(str(result.get("message") or ""), error=True)
+
+    def apply_timezone(self) -> None:
+        result = self.app._apply_regional_call(
+            "set_timezone", {"timezone": self.timezone.get()}
+        )
+        if result.get("ok"):
+            self.app.set_status(self.app.tr("regional.timezone_applied"))
+        else:
+            self.app.set_status(str(result.get("message") or ""), error=True)
 
 
 class SystemPage(BasePage):

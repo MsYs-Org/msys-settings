@@ -70,7 +70,7 @@ class MaterialCardButton(tk.Canvas):
         self.accent = accent
         self.compact = compact
         self.scroll = scroll
-        self._minimum_height = max(44, int(height))
+        self._minimum_height = max(56, int(height))
         self._requested_height = self._minimum_height
         self.disabled = False
         self._pressed = False
@@ -403,7 +403,9 @@ class ScrollableSurface(tk.Frame):
         self.canvas.bind("<Button-5>", lambda _event: self.scroll_pixels(36))
         self.canvas.bind("<ButtonPress-1>", self._touch_start)
         self.canvas.bind("<B1-Motion>", self._touch_move)
+        self.canvas.bind("<ButtonRelease-1>", self._touch_end)
         self._touch_y = 0
+        self._touch_active = False
         self._bound_widgets: set[str] = set()
 
     def _sync_region(self, _event: tk.Event[tk.Misc]) -> None:
@@ -451,6 +453,7 @@ class ScrollableSurface(tk.Frame):
                     widget.bind("<Button-5>", lambda _event: self.scroll_pixels(36), add="+")
                     widget.bind("<ButtonPress-1>", self._touch_start, add="+")
                     widget.bind("<B1-Motion>", self._touch_move, add="+")
+                    widget.bind("<ButtonRelease-1>", self._touch_end, add="+")
             self._bind_descendants(widget)
 
     def _wheel(self, event: tk.Event[tk.Misc]) -> None:
@@ -458,11 +461,19 @@ class ScrollableSurface(tk.Frame):
 
     def _touch_start(self, event: tk.Event[tk.Misc]) -> None:
         self._touch_y = int(event.y_root)
+        self._touch_active = True
 
     def _touch_move(self, event: tk.Event[tk.Misc]) -> None:
+        if not self._touch_active:
+            return
         current = int(event.y_root)
-        self.scroll_pixels(self._touch_y - current)
+        delta = self._touch_y - current
+        if abs(delta) >= 2:
+            self.scroll_pixels(delta)
         self._touch_y = current
+
+    def _touch_end(self, _event: tk.Event[tk.Misc]) -> None:
+        self._touch_active = False
 
     def scroll_pixels(self, delta: int) -> None:
         bounds = self.canvas.bbox("all")

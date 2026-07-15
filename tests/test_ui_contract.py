@@ -316,6 +316,48 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('"TButton"', exclusive)
         self.assertIn('"TEntry"', exclusive)
 
+    def test_every_concrete_secondary_page_uses_shared_touch_scrolling(self) -> None:
+        module = ast.parse(self._source())
+        exempt = {"BasePage", "WifiPage", "BluetoothPage"}
+        pages = {
+            node.name: node
+            for node in module.body
+            if isinstance(node, ast.ClassDef)
+            and node.name not in exempt
+            and any(
+                isinstance(base, ast.Name)
+                and base.id in {"BasePage", "RadioPage"}
+                for base in node.bases
+            )
+        }
+        self.assertIn("RegionalPage", pages)
+        for name, page in pages.items():
+            calls = {
+                node.func.id
+                for node in ast.walk(page)
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            }
+            self.assertIn("ScrollableSurface", calls, name)
+
+    def test_regional_page_and_backend_remain_dependency_free(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        source = self._source()
+        backend = (root / "files/app/msys_settings/regional.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('(\"regional\", \"nav.regional\", RegionalPage)', source)
+        self.assertIn('method in {\"set_language\", \"set_timezone\"}', source)
+        self.assertIn("ScrollableSurface(self, background=PANEL)", source)
+        self.assertIn("os.symlink", backend)
+        self.assertIn("os.replace", backend)
+        combined = (source + backend).lower()
+        for forbidden in ("systemctl", "timedatectl", "dbus", "apt-get", "bluetoothctl"):
+            self.assertNotIn(forbidden, combined)
+
+    def test_compact_tree_rows_have_a_touchable_minimum_height(self) -> None:
+        source = self._source()
+        self.assertIn("rowheight=34 if self.compact else 38", source)
+
 
 if __name__ == "__main__":
     unittest.main()

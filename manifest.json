@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.2.22",
+    "version": "0.2.23",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -41,6 +41,11 @@
       "provides": [
         {
           "interface": "org.msys.application-navigation.v1",
+          "exclusive": false,
+          "priority": 100
+        },
+        {
+          "interface": "org.msys.settings.regional.v1",
           "exclusive": false,
           "priority": 100
         }
@@ -135,6 +140,11 @@
           {
             "action": "settings-panel",
             "name": "updates",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "regional",
             "priority": 100
           }
         ]

@@ -137,6 +137,7 @@ class SettingsI18nTests(unittest.TestCase):
             "radio.",
             "audio.",
             "keyboard.",
+            "regional.",
             "appearance.",
             "apps.",
             "roles.",
