@@ -114,6 +114,22 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('"interval_ms": self._debug_integer(', layout_page)
         self.assertIn('self.app.tr("display.debug_overlay_not_applied")', layout_page)
 
+    def test_display_capability_gates_touch_cursor_and_confirms_write_receipt(self) -> None:
+        source = self._source()
+        layout_page = source.split("class LayoutPage", 1)[1].split(
+            "class AppearancePage", 1
+        )[0]
+        self.assertIn('text=app.tr("display.debug_cursor_enabled")', layout_page)
+        self.assertIn("self.debug_cursor_inputs", layout_page)
+        self.assertIn("self._cursor_available", layout_page)
+        self.assertIn('{"cursor_enabled": selected}', layout_page)
+        self.assertIn('cursor.get("available") is not True', layout_page)
+        self.assertIn('cursor.get("enabled") is not selected', layout_page)
+        self.assertIn(
+            'fill="x" if app.compact else "none"',
+            layout_page,
+        )
+
     def test_display_debug_shows_cumulative_dirty_counters_without_rates(self) -> None:
         source = self._source()
         layout_page = source.split("class LayoutPage", 1)[1].split(

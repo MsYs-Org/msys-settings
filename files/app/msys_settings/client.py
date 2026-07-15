@@ -339,6 +339,11 @@ class SettingsClient:
             payload: dict[str, Any] = {"enabled": settings}
         elif isinstance(settings, dict) and settings:
             payload = dict(settings)
+            if "cursor_enabled" in payload:
+                cursor_enabled = payload["cursor_enabled"]
+                if not isinstance(cursor_enabled, bool):
+                    raise TypeError("CH347 touch cursor enabled must be true or false")
+                payload["cursor_enabled"] = cursor_enabled
             overlay = payload.get("overlay")
             if isinstance(overlay, dict):
                 payload["overlay"] = {

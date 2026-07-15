@@ -2903,6 +2903,8 @@ class LayoutPage(BasePage):
         self._debug_busy = False
         self._confirmed_debug_enabled = False
         self._overlay_available = False
+        self._cursor_available = False
+        self._confirmed_cursor_enabled = False
         self._confirmed_debug_overlay: dict[str, Any] = {
             "enabled": False,
             "alpha": 176,
@@ -2938,6 +2940,7 @@ class LayoutPage(BasePage):
         ).pack(fill="x", pady=(2, 7))
 
         self.debug_enabled = tk.BooleanVar(value=False)
+        self.debug_cursor_enabled = tk.BooleanVar(value=False)
         self.debug_overlay_enabled = tk.BooleanVar(value=False)
         self.debug_overlay_alpha = tk.StringVar(value="176")
         self.debug_overlay_scale = tk.StringVar(value="1")
@@ -2958,6 +2961,7 @@ class LayoutPage(BasePage):
         self.debug_feedback = tk.StringVar(value=app.tr("display.debug_loading"))
         self.debug_inputs: list[tk.Widget] = []
         self.debug_overlay_inputs: list[tk.Widget] = []
+        self.debug_cursor_inputs: list[tk.Widget] = []
 
         debug_form = ttk.Frame(debug_card, style="Panel.TFrame")
         debug_form.pack(fill="x")
@@ -3031,6 +3035,65 @@ class LayoutPage(BasePage):
             justify="left",
             wraplength=276 if app.compact else 650,
         ).pack(fill="x", pady=(0, 6))
+
+        cursor_panel = tk.Frame(
+            debug_card,
+            background=FIELD_BG,
+            highlightbackground=OUTLINE,
+            highlightthickness=1,
+            padx=8,
+            pady=7,
+        )
+        cursor_panel.pack(fill="x", pady=(4, 7))
+        tk.Label(
+            cursor_panel,
+            text=app.tr("display.debug_cursor_title"),
+            background=FIELD_BG,
+            foreground=TEXT,
+            anchor="w",
+            font=font_spec(cursor_panel, 10, "bold"),
+        ).pack(fill="x")
+        tk.Label(
+            cursor_panel,
+            text=app.tr("display.debug_cursor_note"),
+            background=FIELD_BG,
+            foreground=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=258 if app.compact else 620,
+        ).pack(fill="x", pady=(2, 4))
+        cursor_toggle = ttk.Checkbutton(
+            cursor_panel,
+            text=app.tr("display.debug_cursor_enabled"),
+            variable=self.debug_cursor_enabled,
+            state="disabled",
+        )
+        cursor_toggle.pack(anchor="w", fill="x")
+        self.debug_cursor_inputs.append(cursor_toggle)
+        self.debug_cursor_status = tk.StringVar(
+            value=app.tr("display.debug_cursor_checking")
+        )
+        tk.Label(
+            cursor_panel,
+            textvariable=self.debug_cursor_status,
+            background=FIELD_BG,
+            foreground=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=258 if app.compact else 620,
+        ).pack(fill="x", pady=(4, 3))
+        self.debug_cursor_apply_button = ttk.Button(
+            cursor_panel,
+            text=app.tr("display.debug_apply_cursor"),
+            command=self.apply_debug_cursor,
+            state="disabled",
+        )
+        self.debug_cursor_apply_button.pack(
+            fill="x" if app.compact else "none",
+            anchor="w",
+            pady=(3, 0),
+        )
+        self.debug_cursor_inputs.append(self.debug_cursor_apply_button)
 
         overlay_panel = tk.Frame(
             debug_card,
@@ -3242,6 +3305,13 @@ class LayoutPage(BasePage):
         )
         for widget in self.debug_overlay_inputs:
             widget.configure(state=overlay_state)
+        cursor_state = (
+            "normal"
+            if enabled and self._cursor_available and not self._debug_busy
+            else "disabled"
+        )
+        for widget in self.debug_cursor_inputs:
+            widget.configure(state=cursor_state)
         self.debug_refresh_button.configure(
             state="disabled" if self._debug_busy else "normal"
         )
@@ -3264,8 +3334,12 @@ class LayoutPage(BasePage):
         if not result.ok:
             self._debug_loaded = False
             self._overlay_available = False
+            self._cursor_available = False
             self.debug_overlay_status.set(
                 self.app.tr("display.debug_overlay_unavailable")
+            )
+            self.debug_cursor_status.set(
+                self.app.tr("display.debug_cursor_unavailable")
             )
             self._set_debug_controls(False)
             self._set_debug_dirty_counters(None)
@@ -3350,6 +3424,13 @@ class LayoutPage(BasePage):
             if self._overlay_available
             else "display.debug_overlay_unavailable"
         ))
+        cursor = debug.get("touch_cursor")
+        if not isinstance(cursor, dict):
+            cursor = {"available": False, "enabled": False}
+        self._cursor_available = cursor.get("available") is True
+        self._confirmed_cursor_enabled = bool(cursor.get("enabled", False))
+        self.debug_cursor_enabled.set(self._confirmed_cursor_enabled)
+        self.debug_cursor_status.set(self._debug_cursor_state(cursor))
 
         observed = debug.get("observed_fps")
         panel_fps = debug.get("panel_fps")
@@ -3405,6 +3486,40 @@ class LayoutPage(BasePage):
             foreground=ERROR if debug.get("status") == "unavailable" else MUTED
         )
         self._set_debug_controls(True)
+
+    def _debug_cursor_state(self, cursor: dict[str, Any]) -> str:
+        if cursor.get("available") is not True:
+            return self.app.tr("display.debug_cursor_unavailable")
+        configured = self.app.tr(
+            "common.enabled" if cursor.get("enabled") else "common.disabled"
+        )
+        if cursor.get("applied") is True:
+            application = self.app.tr("display.debug_runtime_applied")
+        elif cursor.get("requires_restart") is True:
+            application = self.app.tr("display.debug_runtime_pending")
+        else:
+            application = self.app.tr("display.debug_runtime_not_applied")
+        generation = cursor.get("provider_generation")
+        generation_text = (
+            str(generation)
+            if generation is not None
+            else self.app.tr("display.debug_not_running")
+        )
+        state = self.app.tr(
+            "display.debug_cursor_state",
+            {
+                "configured": configured,
+                "application": application,
+                "generation": generation_text,
+            },
+        )
+        reason = str(cursor.get("reason") or "").strip()
+        if reason:
+            state = self.app.tr(
+                "display.debug_cursor_state_reason",
+                {"state": state, "reason": reason},
+            )
+        return state
 
     def _set_debug_dirty_counters(self, debug: dict[str, Any] | None) -> None:
         def value(field: str) -> str:
@@ -3517,6 +3632,83 @@ class LayoutPage(BasePage):
             lambda: self.app.model.ch347_set_debug(selected),
             self._debug_mode_applied,
         )
+
+    def apply_debug_cursor(self) -> None:
+        if not self._cursor_available:
+            self.debug_cursor_status.set(
+                self.app.tr("display.debug_cursor_unavailable")
+            )
+            return
+        selected = bool(self.debug_cursor_enabled.get())
+        if selected == self._confirmed_cursor_enabled:
+            self.debug_cursor_status.set(
+                self.app.tr("display.debug_cursor_unchanged")
+            )
+            return
+        self._debug_busy = True
+        self._set_debug_controls(False)
+        self.debug_cursor_status.set(
+            self.app.tr("status.applying_ch347_touch_cursor")
+        )
+        self.app.run_task(
+            self.app.tr("status.applying_ch347_touch_cursor"),
+            lambda: self.app.model.ch347_set_debug({"cursor_enabled": selected}),
+            lambda result: self._debug_cursor_applied(result, selected),
+        )
+
+    def _debug_cursor_applied(
+        self,
+        result: OperationResult,
+        selected: bool,
+    ) -> bool:
+        self._debug_busy = False
+        if not result.ok:
+            self.debug_cursor_enabled.set(self._confirmed_cursor_enabled)
+            self._set_debug_controls(self._debug_loaded)
+            message = self.app.tr(
+                "display.debug_cursor_apply_failed",
+                {"message": result.message or result.code},
+            )
+            self.debug_cursor_status.set(message)
+            self.app.set_status(message, error=True)
+            return True
+        debug = result.data.get("debug")
+        cursor = debug.get("touch_cursor") if isinstance(debug, dict) else None
+        if (
+            not isinstance(cursor, dict)
+            or cursor.get("available") is not True
+            or cursor.get("enabled") is not selected
+        ):
+            self._cursor_available = bool(
+                isinstance(cursor, dict) and cursor.get("available") is True
+            )
+            self.debug_cursor_enabled.set(self._confirmed_cursor_enabled)
+            self._set_debug_controls(self._debug_loaded)
+            message = self.app.tr("display.debug_cursor_not_applied")
+            self.debug_cursor_status.set(message)
+            self.app.set_status(message, error=True)
+            return True
+        if cursor.get("applied") is not True and cursor.get("requires_restart") is not True:
+            self.debug_cursor_enabled.set(self._confirmed_cursor_enabled)
+            self._set_debug_controls(self._debug_loaded)
+            message = self.app.tr("display.debug_cursor_not_applied")
+            self.debug_cursor_status.set(message)
+            self.app.set_status(message, error=True)
+            return True
+        self._load_debug_state(debug)
+        message = self.app.tr(
+            "display.debug_cursor_saved_restart"
+            if cursor.get("requires_restart") is True
+            else "display.debug_cursor_applied"
+        )
+        self.debug_cursor_status.set(
+            self.app.tr(
+                "display.debug_cursor_result",
+                {"message": message, "state": self._debug_cursor_state(cursor)},
+            )
+        )
+        self.app.set_status(message)
+        return True
 
     def _selected_debug_overlay(self) -> dict[str, Any]:
         return {

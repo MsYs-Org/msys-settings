@@ -1,5 +1,16 @@
 # MSYS Settings
 
+## 0.2.22 capability-gated touch cursor
+
+Display diagnostics now exposes CH347 touch-cursor drawing as an independent
+setting.  It uses the optional typed `debug.touch_cursor` receipt and sends
+only `cursor_enabled` through `set_debug`; Settings never reads or writes the
+driver environment directly.  Older providers keep the switch and apply
+action disabled.  A write is reported as successful only when the provider
+returns the requested value together with an applied or restart-required
+receipt and its authoritative generation.  HAL owns persistence.  The
+localized panel remains wrapped and touch-scrollable at 320×480.
+
 ## 0.2.19 Bounded interactive repaint
 
 Wi-Fi password edits now change button/entry state only when the effective

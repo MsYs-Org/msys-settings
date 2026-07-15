@@ -11,6 +11,7 @@ from msys_settings.model import (
     CH347_DEVICE,
     SettingsModel,
     normalise_ch347_debug_response,
+    normalise_ch347_touch_cursor,
     normalise_ch347_status,
     validate_ch347_debug_overlay,
     validate_ch347_debug_request,
@@ -64,6 +65,13 @@ def debug_response(**changes):
             "scale": 1,
             "items": ["fps", "dirty", "bytes"],
             "interval_ms": 1000,
+        },
+        "touch_cursor": {
+            "enabled": False,
+            "applied": True,
+            "requires_restart": False,
+            "provider_generation": 8,
+            "reason": "cursor-disabled",
         },
     }
     debug.update(changes)
@@ -141,15 +149,28 @@ class Ch347Client:
 
     def ch347_set_debug(self, settings):
         self.calls.append(("set_debug", settings))
-        enabled = settings if isinstance(settings, bool) else settings.get("enabled", False)
-        overlay = (
-            settings.get("overlay")
-            if isinstance(settings, dict)
-            else debug_response()["debug"]["overlay"]
+        current = debug_response()["debug"]
+        enabled = (
+            settings
+            if isinstance(settings, bool)
+            else settings.get("enabled", current["enabled"])
         )
+        overlay = (
+            settings.get("overlay", current["overlay"])
+            if isinstance(settings, dict)
+            else current["overlay"]
+        )
+        touch_cursor = dict(current["touch_cursor"])
+        if isinstance(settings, dict) and "cursor_enabled" in settings:
+            touch_cursor.update({
+                "enabled": settings["cursor_enabled"],
+                "provider_generation": 9,
+                "reason": "cursor-setting-applied",
+            })
         return debug_response(
             enabled=enabled,
             overlay=overlay,
+            touch_cursor=touch_cursor,
             provider_generation=9,
             status="active" if enabled else "idle",
             reason="debug overlay active" if enabled else "debug overlay disabled",
@@ -200,6 +221,7 @@ class Ch347Tests(unittest.TestCase):
                 "interval_ms": 1000,
             },
         })
+        client.ch347_set_debug({"cursor_enabled": True})
         client.ch347_get_touch_calibration()
         client.ch347_set_touch_calibration({"invert_x": True})
         client.ch347_set_physical_rotation("right")
@@ -215,6 +237,7 @@ class Ch347Tests(unittest.TestCase):
                 "get_debug",
                 "set_debug",
                 "set_debug",
+                "set_debug",
                 "get_touch_calibration",
                 "set_touch_calibration",
                 "set_physical_rotation",
@@ -225,15 +248,18 @@ class Ch347Tests(unittest.TestCase):
         self.assertTrue(rpc.calls[0][3]["idempotent"])
         self.assertTrue(rpc.calls[1][3]["idempotent"])
         self.assertTrue(rpc.calls[3][3]["idempotent"])
-        self.assertTrue(rpc.calls[6][3]["idempotent"])
+        self.assertTrue(rpc.calls[7][3]["idempotent"])
         self.assertNotIn("idempotent", rpc.calls[2][3])
         self.assertNotIn("idempotent", rpc.calls[4][3])
         self.assertEqual(
-            rpc.calls[7][2],
+            rpc.calls[8][2],
             {"touch_calibration": {"invert_x": True}},
         )
         self.assertEqual(rpc.calls[4][2], {"enabled": True})
         self.assertEqual(rpc.calls[5][2]["overlay"]["items"], ["fps"])
+        self.assertEqual(rpc.calls[6][2], {"cursor_enabled": True})
+        with self.assertRaises(TypeError):
+            client.ch347_set_debug({"cursor_enabled": 1})
 
     def test_model_exposes_status_and_validated_typed_writes(self) -> None:
         client = Ch347Client()
@@ -256,6 +282,7 @@ class Ch347Tests(unittest.TestCase):
                 "interval_ms": 500,
             },
         })
+        changed_cursor = model.ch347_set_debug({"cursor_enabled": True})
         touch = model.ch347_set_touch_calibration(dict(CALIBRATION))
         restart = model.ch347_restart()
         self.assertTrue(fps.ok)
@@ -267,6 +294,13 @@ class Ch347Tests(unittest.TestCase):
         self.assertTrue(changed_overlay.ok)
         self.assertEqual(changed_overlay.data["debug"]["overlay"]["alpha"], 128)
         self.assertTrue(changed_overlay.data["debug"]["overlay"]["available"])
+        self.assertTrue(changed_cursor.ok)
+        self.assertTrue(changed_cursor.data["debug"]["touch_cursor"]["available"])
+        self.assertTrue(changed_cursor.data["debug"]["touch_cursor"]["enabled"])
+        self.assertEqual(
+            changed_cursor.data["debug"]["touch_cursor"]["provider_generation"],
+            9,
+        )
         self.assertTrue(touch.ok)
         self.assertTrue(restart.ok)
         self.assertIn(("set_fps", 30, 0), client.calls)
@@ -292,6 +326,7 @@ class Ch347Tests(unittest.TestCase):
         self.assertFalse(model.ch347_set_fps(30, 31).ok)
         self.assertFalse(model.ch347_set_debug(1).ok)
         self.assertFalse(model.ch347_set_debug({"overlay": {"enabled": True}}).ok)
+        self.assertFalse(model.ch347_set_debug({"cursor_enabled": 1}).ok)
         invalid = dict(CALIBRATION, x_min=4000, x_max=3000)
         result = model.ch347_set_touch_calibration(invalid)
         self.assertFalse(result.ok)
@@ -401,6 +436,61 @@ class Ch347Tests(unittest.TestCase):
         self.assertEqual(overlay["scale"], 1)
         self.assertEqual(overlay["items"], ["fps", "dirty", "bytes"])
         self.assertEqual(overlay["interval_ms"], 1000)
+
+    def test_touch_cursor_contract_is_capability_gated_and_strict(self) -> None:
+        current = normalise_ch347_debug_response(debug_response())["debug"][
+            "touch_cursor"
+        ]
+        self.assertTrue(current["available"])
+        self.assertFalse(current["enabled"])
+        self.assertTrue(current["applied"])
+        self.assertEqual(current["provider_generation"], 8)
+
+        legacy = debug_response()
+        legacy["debug"].pop("touch_cursor")
+        unavailable = normalise_ch347_debug_response(legacy)["debug"][
+            "touch_cursor"
+        ]
+        self.assertFalse(unavailable["available"])
+        self.assertFalse(unavailable["enabled"])
+        self.assertFalse(unavailable["applied"])
+
+        self.assertEqual(
+            validate_ch347_debug_request({"cursor_enabled": True}),
+            {"cursor_enabled": True},
+        )
+        with self.assertRaises(TypeError):
+            validate_ch347_debug_request({"cursor_enabled": 1})
+        for malformed in (
+            True,
+            {},
+            {
+                "enabled": False,
+                "applied": True,
+                "requires_restart": False,
+                "provider_generation": 1,
+                "reason": "ok",
+                "extra": False,
+            },
+            {
+                "enabled": False,
+                "applied": 1,
+                "requires_restart": False,
+                "provider_generation": 1,
+                "reason": "ok",
+            },
+            {
+                "enabled": False,
+                "applied": True,
+                "requires_restart": False,
+                "provider_generation": True,
+                "reason": "ok",
+            },
+        ):
+            with self.subTest(cursor=malformed), self.assertRaises(
+                (TypeError, ValueError)
+            ):
+                normalise_ch347_touch_cursor(malformed)
 
     def test_debug_overlay_contract_is_strict_and_canonical(self) -> None:
         selected = validate_ch347_debug_overlay({
@@ -535,6 +625,10 @@ class Ch347Tests(unittest.TestCase):
         self.assertIn("self.refresh_debug", layout_page)
         self.assertIn("debug.get(\"observed_fps\")", layout_page)
         self.assertIn('self.app.tr("display.debug_confirm_title")', layout_page)
+        self.assertIn('text=app.tr("display.debug_cursor_enabled")', layout_page)
+        self.assertIn("self._cursor_available", layout_page)
+        self.assertIn('{"cursor_enabled": selected}', layout_page)
+        self.assertIn("cursor.get(\"enabled\") is not selected", layout_page)
         self.assertIn("default=messagebox.NO", layout_page)
 
 

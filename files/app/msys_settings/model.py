@@ -1714,7 +1714,7 @@ def validate_ch347_debug_request(request: Any) -> dict[str, Any]:
         return {"enabled": request}
     if not isinstance(request, dict) or not request:
         raise TypeError("CH347 debug settings must be a boolean or non-empty object")
-    unknown = sorted(set(request) - {"enabled", "overlay"})
+    unknown = sorted(set(request) - {"enabled", "overlay", "cursor_enabled"})
     if unknown:
         raise ValueError(
             "CH347 debug settings have unknown fields: " + ", ".join(unknown)
@@ -1726,7 +1726,71 @@ def validate_ch347_debug_request(request: Any) -> dict[str, Any]:
         selected["enabled"] = request["enabled"]
     if "overlay" in request:
         selected["overlay"] = validate_ch347_debug_overlay(request["overlay"])
+    if "cursor_enabled" in request:
+        if not isinstance(request["cursor_enabled"], bool):
+            raise TypeError("CH347 touch cursor enabled must be true or false")
+        selected["cursor_enabled"] = request["cursor_enabled"]
     return selected
+
+
+def normalise_ch347_touch_cursor(cursor: Any) -> dict[str, Any]:
+    """Normalise the optional touch-cursor receipt from a debug response.
+
+    Older providers omit the object entirely.  That is represented as an
+    unavailable capability rather than an enabled-looking default, so callers
+    cannot accidentally present a successful write that the provider ignored.
+    """
+
+    if cursor is None:
+        return {
+            "available": False,
+            "enabled": False,
+            "applied": False,
+            "requires_restart": False,
+            "provider_generation": None,
+            "reason": "unsupported",
+        }
+    if not isinstance(cursor, dict):
+        raise ValueError("CH347 control returned a non-object touch cursor state")
+    expected = {
+        "enabled",
+        "applied",
+        "requires_restart",
+        "provider_generation",
+        "reason",
+    }
+    unknown = sorted(set(cursor) - expected)
+    missing = sorted(expected - set(cursor))
+    if unknown:
+        raise ValueError(
+            "CH347 touch cursor state has unknown fields: " + ", ".join(unknown)
+        )
+    if missing:
+        raise ValueError(
+            "CH347 touch cursor state is missing fields: " + ", ".join(missing)
+        )
+    for field in ("enabled", "applied", "requires_restart"):
+        if not isinstance(cursor[field], bool):
+            raise ValueError(f"CH347 control returned invalid touch cursor {field}")
+    generation = cursor["provider_generation"]
+    if generation is not None:
+        generation = _bounded_integer(
+            generation,
+            "Touch cursor provider generation",
+            0,
+            2_147_483_647,
+        )
+    reason = cursor["reason"]
+    if not isinstance(reason, str) or len(reason) > 1024:
+        raise ValueError("CH347 control returned invalid touch cursor reason")
+    return {
+        "available": True,
+        "enabled": cursor["enabled"],
+        "applied": cursor["applied"],
+        "requires_restart": cursor["requires_restart"],
+        "provider_generation": generation,
+        "reason": reason,
+    }
 
 
 def validate_ch347_calibration(
@@ -1885,6 +1949,7 @@ def normalise_ch347_debug_response(payload: dict[str, Any]) -> dict[str, Any]:
     else:
         overlay = validate_ch347_debug_overlay(raw_overlay)
         overlay["available"] = True
+    touch_cursor = normalise_ch347_touch_cursor(debug.get("touch_cursor"))
 
     return {
         "schema": CH347_CONTROL_SCHEMA,
@@ -1905,6 +1970,7 @@ def normalise_ch347_debug_response(payload: dict[str, Any]) -> dict[str, Any]:
             "status": status,
             "reason": reason,
             "overlay": overlay,
+            "touch_cursor": touch_cursor,
         },
     }
 
