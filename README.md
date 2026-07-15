@@ -1,5 +1,15 @@
 # MSYS Settings
 
+## 0.2.24 live session language
+
+The regional page now commits its language through Core's small
+`msys.session-preferences.v1` contract and listens for
+`msys.session.preferences.changed`. Native system UI can redraw in place and
+new applications inherit the same `MSYS_LOCALE`; neither X11 nor the SPI
+provider is restarted. The private Settings JSON remains a local UI cache and
+standalone fallback, while `/etc/localtime` retains the dependency-free POSIX
+time-zone path.
+
 ## 0.2.23 touch lists and regional settings
 
 Every long Settings page now uses the same direct-touch scrolling surface,

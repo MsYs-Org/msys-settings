@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.2.23",
+    "version": "0.2.24",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -64,6 +64,7 @@
         "mipc.event:subscribe:msys.activation",
         "mipc.event:subscribe:msys.hal.changed",
         "mipc.event:subscribe:msys.shell.preferences.changed",
+        "mipc.event:subscribe:msys.session.preferences.changed",
         "mipc.event:subscribe:msys.update.checked",
         "mipc.event:subscribe:msys.update.applied",
         "mipc.event:subscribe:msys.update.error",

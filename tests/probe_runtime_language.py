@@ -10,8 +10,15 @@ from msys_settings.regional import RegionalSettingsStore
 from msys_settings.ui import SettingsApplication
 
 
+class ProbeClient:
+    def set_session_language(self, language: str) -> dict[str, object]:
+        return {"language": language, "resolved_language": language, "changed": True}
+
+
 class ProbeModel:
     """Constructors only retain this object; deferred refresh performs no RPC."""
+
+    client = ProbeClient()
 
 
 def main() -> int:

@@ -53,6 +53,19 @@ class SettingsClient:
             "msys.core", "isolation_capabilities", {}, idempotent=True
         )
 
+    def get_session_preferences(self) -> dict[str, Any]:
+        return self.rpc.call(
+            "msys.core", "get_session_preferences", {}, idempotent=True
+        )
+
+    def set_session_language(self, language: str) -> dict[str, Any]:
+        return self.rpc.call(
+            "msys.core",
+            "set_session_preferences",
+            {"language": language},
+            timeout=5.0,
+        )
+
     def list_roles(self) -> dict[str, Any]:
         return self.rpc.call("msys.core", "list_roles", {}, idempotent=True)
 

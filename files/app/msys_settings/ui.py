@@ -194,6 +194,7 @@ class SettingsApplication:
         "msys.activation",
         "msys.hal.changed",
         "msys.shell.preferences.changed",
+        "msys.session.preferences.changed",
         "msys.update.checked",
         "msys.update.applied",
         "msys.update.error",
@@ -703,6 +704,22 @@ class SettingsApplication:
                         appearance.external_change(
                             payload if isinstance(payload, dict) else {}
                         )
+                elif topic == "msys.session.preferences.changed" and isinstance(payload, dict):
+                    language = str(payload.get("language") or "")
+                    if language in LANGUAGES:
+                        current = self.regional_store.load().get("language", "system")
+                        if current != language:
+                            try:
+                                self.regional_store.set_language(language)
+                            except OSError as exc:
+                                self.set_status(str(exc), error=True)
+                            else:
+                                active = self._active_page or "home"
+                                self.i18n = SettingsI18n(
+                                    locale=None if language == "system" else language
+                                )
+                                self._rebuild_shell(active)
+                        status_handled = True
                 elif topic == "msys.audio.changed":
                     audio = self._pages.get("audio")
                     if isinstance(audio, AudioPage):
@@ -733,7 +750,14 @@ class SettingsApplication:
                 language = payload.get("language")
                 if not isinstance(language, str) or language not in LANGUAGES:
                     raise ValueError("unsupported language")
+                session = self.model.client.set_session_language(language)
                 state = self.regional_store.set_language(language)
+                if isinstance(session, dict):
+                    state.update({
+                        key: session[key]
+                        for key in ("resolved_language", "changed")
+                        if key in session
+                    })
                 self.i18n = SettingsI18n(
                     locale=None if language == "system" else language
                 )

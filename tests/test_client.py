@@ -58,6 +58,19 @@ class SettingsClientTests(unittest.TestCase):
         self.assertEqual([call[1] for call in self.rpc.calls], ["list_roles", "select_role", "reset_role"])
         self.assertEqual(self.rpc.calls[1][2], {"role": "launcher", "provider": "org.example:launcher"})
 
+    def test_session_language_uses_core_owned_persistent_contract(self) -> None:
+        self.client.get_session_preferences()
+        self.client.set_session_language("zh-CN")
+        self.assertEqual(
+            [call[:3] for call in self.rpc.calls],
+            [
+                ("msys.core", "get_session_preferences", {}),
+                ("msys.core", "set_session_preferences", {"language": "zh-CN"}),
+            ],
+        )
+        self.assertTrue(self.rpc.calls[0][3]["idempotent"])
+        self.assertEqual(self.rpc.calls[1][3], {"timeout": 5.0})
+
     def test_input_method_uses_replaceable_typed_role(self) -> None:
         self.client.input_method_status()
         self.client.toggle_input_method()
