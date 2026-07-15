@@ -54,6 +54,8 @@ def main() -> int:
         "apply_fps": geometry(page.debug_apply_fps_button),
         "mode_row": geometry(mode_row),
         "apply_debug": geometry(page.debug_apply_button),
+        "apply_overlay": geometry(page.debug_overlay_apply_button),
+        "overlay_row": geometry(page.debug_overlay_apply_button.master),
     }
     first_required = (
         result["check_fps"]["requested"]
@@ -65,12 +67,16 @@ def main() -> int:
     result["apply_debug_fits"] = (
         result["apply_debug"]["requested"] <= result["mode_row"]["actual"]
     )
+    result["apply_overlay_fits"] = (
+        result["apply_overlay"]["requested"] <= result["overlay_row"]["actual"]
+    )
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     root.destroy()
     return 0 if (
         not result["root_mapped"]
         and result["first_row_fits"]
         and result["apply_debug_fits"]
+        and result["apply_overlay_fits"]
     ) else 1
 
 

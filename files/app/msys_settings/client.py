@@ -331,11 +331,30 @@ class SettingsClient:
             idempotent=True,
         )
 
-    def ch347_set_debug(self, enabled: bool) -> dict[str, Any]:
+    def ch347_set_debug(
+        self,
+        settings: bool | dict[str, Any],
+    ) -> dict[str, Any]:
+        if isinstance(settings, bool):
+            payload: dict[str, Any] = {"enabled": settings}
+        elif isinstance(settings, dict) and settings:
+            payload = dict(settings)
+            overlay = payload.get("overlay")
+            if isinstance(overlay, dict):
+                payload["overlay"] = {
+                    **overlay,
+                    **(
+                        {"items": list(overlay["items"])}
+                        if isinstance(overlay.get("items"), list)
+                        else {}
+                    ),
+                }
+        else:
+            raise TypeError("CH347 debug settings must be a boolean or non-empty object")
         return self.rpc.call(
             CH347_CONTROL,
             "set_debug",
-            {"enabled": enabled},
+            payload,
             timeout=CH347_CONTROL_TIMEOUT,
         )
 

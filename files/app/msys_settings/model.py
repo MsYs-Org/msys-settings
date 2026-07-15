@@ -43,6 +43,14 @@ CH347_DEBUG_COUNTER_FIELDS = (
     "last_sent_pixels",
     "last_rects",
 )
+CH347_DEBUG_OVERLAY_ITEMS = ("fps", "dirty", "bytes", "bbox", "memory")
+DEFAULT_CH347_DEBUG_OVERLAY: dict[str, Any] = {
+    "enabled": False,
+    "alpha": 176,
+    "scale": 1,
+    "items": ["fps", "dirty", "bytes"],
+    "interval_ms": 1000,
+}
 UINT64_MAX = 18_446_744_073_709_551_615
 CH347_CALIBRATION_BOOLEAN_FIELDS = (
     "enabled",
@@ -1228,14 +1236,19 @@ class SettingsModel:
         result = self._safe(self.client.ch347_get_debug)
         return _normalise_ch347_result(result, normalise_ch347_debug_response)
 
-    def ch347_set_debug(self, enabled: Any) -> OperationResult:
-        if not isinstance(enabled, bool):
+    def ch347_set_debug(self, settings: Any) -> OperationResult:
+        try:
+            selected = validate_ch347_debug_request(settings)
+        except (TypeError, ValueError) as exc:
             return OperationResult(
                 False,
-                message="CH347 debug enabled must be true or false",
+                message=str(exc),
                 code="INVALID_CH347_CONFIG",
             )
-        result = self._safe(lambda: self.client.ch347_set_debug(enabled))
+        request: bool | dict[str, Any] = (
+            selected["enabled"] if isinstance(settings, bool) else selected
+        )
+        result = self._safe(lambda: self.client.ch347_set_debug(request))
         return _normalise_ch347_result(result, normalise_ch347_debug_response)
 
     def ch347_set_touch_calibration(
@@ -1644,6 +1657,78 @@ def validate_ch347_fps(fps: Any, idle_fps: Any) -> tuple[int, int]:
     return selected_fps, selected_idle
 
 
+def validate_ch347_debug_overlay(overlay: Any) -> dict[str, Any]:
+    if not isinstance(overlay, dict):
+        raise TypeError("Display debug overlay must be an object")
+    expected = {"enabled", "alpha", "scale", "items", "interval_ms"}
+    unknown = sorted(set(overlay) - expected)
+    missing = sorted(expected - set(overlay))
+    if unknown:
+        raise ValueError(
+            "Display debug overlay has unknown fields: " + ", ".join(unknown)
+        )
+    if missing:
+        raise ValueError(
+            "Display debug overlay is missing fields: " + ", ".join(missing)
+        )
+    enabled = overlay["enabled"]
+    if not isinstance(enabled, bool):
+        raise TypeError("Display debug overlay enabled must be true or false")
+    alpha = _bounded_integer(
+        overlay["alpha"], "Display debug overlay alpha", 0, 255
+    )
+    scale = _bounded_integer(overlay["scale"], "Display debug overlay scale", 1, 2)
+    if scale not in {1, 2}:
+        raise ValueError("Display debug overlay scale must be 1 or 2")
+    interval_ms = _bounded_integer(
+        overlay["interval_ms"],
+        "Display debug overlay interval",
+        250,
+        5000,
+    )
+    items = overlay["items"]
+    if not isinstance(items, list) or not items:
+        raise TypeError("Display debug overlay items must be a non-empty list")
+    if any(not isinstance(item, str) for item in items):
+        raise TypeError("Display debug overlay item names must be strings")
+    if len(items) != len(set(items)):
+        raise ValueError("Display debug overlay items must not contain duplicates")
+    unsupported = sorted(set(items) - set(CH347_DEBUG_OVERLAY_ITEMS))
+    if unsupported:
+        raise ValueError(
+            "Display debug overlay has unsupported items: "
+            + ", ".join(unsupported)
+        )
+    selected_items = [item for item in CH347_DEBUG_OVERLAY_ITEMS if item in items]
+    return {
+        "enabled": enabled,
+        "alpha": alpha,
+        "scale": scale,
+        "items": selected_items,
+        "interval_ms": interval_ms,
+    }
+
+
+def validate_ch347_debug_request(request: Any) -> dict[str, Any]:
+    if isinstance(request, bool):
+        return {"enabled": request}
+    if not isinstance(request, dict) or not request:
+        raise TypeError("CH347 debug settings must be a boolean or non-empty object")
+    unknown = sorted(set(request) - {"enabled", "overlay"})
+    if unknown:
+        raise ValueError(
+            "CH347 debug settings have unknown fields: " + ", ".join(unknown)
+        )
+    selected: dict[str, Any] = {}
+    if "enabled" in request:
+        if not isinstance(request["enabled"], bool):
+            raise TypeError("CH347 detailed logging must be true or false")
+        selected["enabled"] = request["enabled"]
+    if "overlay" in request:
+        selected["overlay"] = validate_ch347_debug_overlay(request["overlay"])
+    return selected
+
+
 def validate_ch347_calibration(
     calibration: dict[str, Any],
     *,
@@ -1790,6 +1875,16 @@ def normalise_ch347_debug_response(payload: dict[str, Any]) -> dict[str, Any]:
     reason = debug.get("reason", "")
     if not isinstance(reason, str) or len(reason) > 1024:
         raise ValueError("CH347 control returned invalid debug reason")
+    raw_overlay = debug.get("overlay")
+    if raw_overlay is None:
+        overlay = {
+            **DEFAULT_CH347_DEBUG_OVERLAY,
+            "items": list(DEFAULT_CH347_DEBUG_OVERLAY["items"]),
+        }
+        overlay["available"] = False
+    else:
+        overlay = validate_ch347_debug_overlay(raw_overlay)
+        overlay["available"] = True
 
     return {
         "schema": CH347_CONTROL_SCHEMA,
@@ -1809,6 +1904,7 @@ def normalise_ch347_debug_response(payload: dict[str, Any]) -> dict[str, Any]:
             **dirty_counters,
             "status": status,
             "reason": reason,
+            "overlay": overlay,
         },
     }
 

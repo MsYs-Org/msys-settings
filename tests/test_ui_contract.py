@@ -96,7 +96,23 @@ class UiContractTests(unittest.TestCase):
         )
         self.assertIn('debug_mode_actions.pack(fill="x", pady=(6, 0))', layout_page)
         self.assertIn('self.debug_apply_button.pack(fill="x")', layout_page)
+        self.assertIn("self.debug_overlay_apply_button.pack(", layout_page)
+        self.assertIn('fill="x" if app.compact else "none"', layout_page)
+        self.assertIn("self.debug_overlay_inputs", layout_page)
         self.assertIn("ScrollableSurface(self, background=PANEL)", layout_page)
+
+    def test_display_separates_logging_from_capability_gated_overlay(self) -> None:
+        source = self._source()
+        layout_page = source.split("class LayoutPage", 1)[1].split(
+            "class AppearancePage", 1
+        )[0]
+        self.assertIn('text=app.tr("display.debug_logging_enabled")', layout_page)
+        self.assertIn('text=app.tr("display.debug_overlay_enabled")', layout_page)
+        self.assertIn("self._overlay_available", layout_page)
+        self.assertIn('overlay.get("available") is True', layout_page)
+        self.assertIn('"items": [', layout_page)
+        self.assertIn('"interval_ms": self._debug_integer(', layout_page)
+        self.assertIn('self.app.tr("display.debug_overlay_not_applied")', layout_page)
 
     def test_display_debug_shows_cumulative_dirty_counters_without_rates(self) -> None:
         source = self._source()

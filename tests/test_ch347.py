@@ -6,11 +6,14 @@ import unittest
 from msys_settings.client import CH347_CONTROL, SettingsClient
 from msys_settings.ipc import MipcRemoteError
 from msys_settings.model import (
+    CH347_DEBUG_OVERLAY_ITEMS,
     CH347_CONTROL_SCHEMA,
     CH347_DEVICE,
     SettingsModel,
     normalise_ch347_debug_response,
     normalise_ch347_status,
+    validate_ch347_debug_overlay,
+    validate_ch347_debug_request,
     validate_ch347_calibration,
     validate_ch347_fps,
 )
@@ -55,6 +58,13 @@ def debug_response(**changes):
         "last_rects": None,
         "status": "unavailable",
         "reason": "no machine-readable counter",
+        "overlay": {
+            "enabled": False,
+            "alpha": 176,
+            "scale": 1,
+            "items": ["fps", "dirty", "bytes"],
+            "interval_ms": 1000,
+        },
     }
     debug.update(changes)
     return {
@@ -129,10 +139,17 @@ class Ch347Client:
         self.calls.append(("get_debug",))
         return debug_response()
 
-    def ch347_set_debug(self, enabled):
-        self.calls.append(("set_debug", enabled))
+    def ch347_set_debug(self, settings):
+        self.calls.append(("set_debug", settings))
+        enabled = settings if isinstance(settings, bool) else settings.get("enabled", False)
+        overlay = (
+            settings.get("overlay")
+            if isinstance(settings, dict)
+            else debug_response()["debug"]["overlay"]
+        )
         return debug_response(
             enabled=enabled,
+            overlay=overlay,
             provider_generation=9,
             status="active" if enabled else "idle",
             reason="debug overlay active" if enabled else "debug overlay disabled",
@@ -173,6 +190,16 @@ class Ch347Tests(unittest.TestCase):
         client.ch347_set_fps(60, 1)
         client.ch347_get_debug()
         client.ch347_set_debug(True)
+        client.ch347_set_debug({
+            "enabled": False,
+            "overlay": {
+                "enabled": True,
+                "alpha": 176,
+                "scale": 1,
+                "items": ["fps"],
+                "interval_ms": 1000,
+            },
+        })
         client.ch347_get_touch_calibration()
         client.ch347_set_touch_calibration({"invert_x": True})
         client.ch347_set_physical_rotation("right")
@@ -187,6 +214,7 @@ class Ch347Tests(unittest.TestCase):
                 "set_fps",
                 "get_debug",
                 "set_debug",
+                "set_debug",
                 "get_touch_calibration",
                 "set_touch_calibration",
                 "set_physical_rotation",
@@ -197,14 +225,15 @@ class Ch347Tests(unittest.TestCase):
         self.assertTrue(rpc.calls[0][3]["idempotent"])
         self.assertTrue(rpc.calls[1][3]["idempotent"])
         self.assertTrue(rpc.calls[3][3]["idempotent"])
-        self.assertTrue(rpc.calls[5][3]["idempotent"])
+        self.assertTrue(rpc.calls[6][3]["idempotent"])
         self.assertNotIn("idempotent", rpc.calls[2][3])
         self.assertNotIn("idempotent", rpc.calls[4][3])
         self.assertEqual(
-            rpc.calls[6][2],
+            rpc.calls[7][2],
             {"touch_calibration": {"invert_x": True}},
         )
         self.assertEqual(rpc.calls[4][2], {"enabled": True})
+        self.assertEqual(rpc.calls[5][2]["overlay"]["items"], ["fps"])
 
     def test_model_exposes_status_and_validated_typed_writes(self) -> None:
         client = Ch347Client()
@@ -217,6 +246,16 @@ class Ch347Tests(unittest.TestCase):
         fps = model.ch347_set_fps(30, 0)
         debug = model.ch347_get_debug()
         changed_debug = model.ch347_set_debug(True)
+        changed_overlay = model.ch347_set_debug({
+            "enabled": True,
+            "overlay": {
+                "enabled": True,
+                "alpha": 128,
+                "scale": 2,
+                "items": ["fps", "memory"],
+                "interval_ms": 500,
+            },
+        })
         touch = model.ch347_set_touch_calibration(dict(CALIBRATION))
         restart = model.ch347_restart()
         self.assertTrue(fps.ok)
@@ -225,6 +264,9 @@ class Ch347Tests(unittest.TestCase):
         self.assertTrue(changed_debug.ok)
         self.assertTrue(changed_debug.data["debug"]["enabled"])
         self.assertEqual(changed_debug.data["debug"]["provider_generation"], 9)
+        self.assertTrue(changed_overlay.ok)
+        self.assertEqual(changed_overlay.data["debug"]["overlay"]["alpha"], 128)
+        self.assertTrue(changed_overlay.data["debug"]["overlay"]["available"])
         self.assertTrue(touch.ok)
         self.assertTrue(restart.ok)
         self.assertIn(("set_fps", 30, 0), client.calls)
@@ -249,6 +291,7 @@ class Ch347Tests(unittest.TestCase):
         self.assertFalse(model.ch347_set_fps(0, 0).ok)
         self.assertFalse(model.ch347_set_fps(30, 31).ok)
         self.assertFalse(model.ch347_set_debug(1).ok)
+        self.assertFalse(model.ch347_set_debug({"overlay": {"enabled": True}}).ok)
         invalid = dict(CALIBRATION, x_min=4000, x_max=3000)
         result = model.ch347_set_touch_calibration(invalid)
         self.assertFalse(result.ok)
@@ -348,6 +391,41 @@ class Ch347Tests(unittest.TestCase):
             "last_rects",
         )))
 
+    def test_old_debug_response_marks_overlay_unavailable_with_safe_defaults(self) -> None:
+        legacy = debug_response()
+        legacy["debug"].pop("overlay")
+        overlay = normalise_ch347_debug_response(legacy)["debug"]["overlay"]
+        self.assertFalse(overlay["available"])
+        self.assertFalse(overlay["enabled"])
+        self.assertEqual(overlay["alpha"], 176)
+        self.assertEqual(overlay["scale"], 1)
+        self.assertEqual(overlay["items"], ["fps", "dirty", "bytes"])
+        self.assertEqual(overlay["interval_ms"], 1000)
+
+    def test_debug_overlay_contract_is_strict_and_canonical(self) -> None:
+        selected = validate_ch347_debug_overlay({
+            "enabled": True,
+            "alpha": 0,
+            "scale": 2,
+            "items": ["memory", "fps"],
+            "interval_ms": 250,
+        })
+        self.assertEqual(selected["items"], ["fps", "memory"])
+        self.assertEqual(set(CH347_DEBUG_OVERLAY_ITEMS), {
+            "fps", "dirty", "bytes", "bbox", "memory",
+        })
+        self.assertEqual(validate_ch347_debug_request(False), {"enabled": False})
+        for overlay in (
+            {"enabled": False, "alpha": 256, "scale": 1, "items": ["fps"], "interval_ms": 1000},
+            {"enabled": False, "alpha": 176, "scale": 3, "items": ["fps"], "interval_ms": 1000},
+            {"enabled": False, "alpha": 176, "scale": 1, "items": [], "interval_ms": 1000},
+            {"enabled": False, "alpha": 176, "scale": 1, "items": ["fps", "fps"], "interval_ms": 1000},
+            {"enabled": False, "alpha": 176, "scale": 1, "items": ["fake"], "interval_ms": 1000},
+            {"enabled": False, "alpha": 176, "scale": 1, "items": ["fps"], "interval_ms": 249},
+        ):
+            with self.subTest(overlay=overlay), self.assertRaises((TypeError, ValueError)):
+                validate_ch347_debug_overlay(overlay)
+
     def test_malformed_dirty_counters_are_rejected(self) -> None:
         maximum = 18_446_744_073_709_551_615
         for field in (
@@ -381,6 +459,14 @@ class Ch347Tests(unittest.TestCase):
             {"status": "pretend-active"},
             {"provider_generation": True},
             {"reason": "x" * 1025},
+            {"overlay": {"enabled": False}},
+            {"overlay": {
+                "enabled": False,
+                "alpha": 176,
+                "scale": 1,
+                "items": ["fps", "unknown"],
+                "interval_ms": 1000,
+            }},
         ):
             with self.subTest(changes=changes):
                 with self.assertRaises((TypeError, ValueError)):

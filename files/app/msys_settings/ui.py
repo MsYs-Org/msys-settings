@@ -18,6 +18,7 @@ from .model import (
     CH347_CALIBRATION_BOOLEAN_FIELDS,
     CH347_CALIBRATION_INTEGER_FIELDS,
     CH347_CONTROL_SCHEMA,
+    CH347_DEBUG_OVERLAY_ITEMS,
     CH347_DEVICE,
     DESKTOP_LAYOUTS,
     DESKTOP_SORTS,
@@ -75,6 +76,13 @@ PHYSICAL_ROTATION_LABEL_KEYS = {
     "right": "display.physical_right",
     "left": "display.physical_left",
     "inverted": "display.physical_inverted",
+}
+DEBUG_OVERLAY_ITEM_LABEL_KEYS = {
+    "fps": "display.debug_overlay_item_fps",
+    "dirty": "display.debug_overlay_item_dirty",
+    "bytes": "display.debug_overlay_item_bytes",
+    "bbox": "display.debug_overlay_item_bbox",
+    "memory": "display.debug_overlay_item_memory",
 }
 DESKTOP_LAYOUT_LABEL_KEYS = {
     "profile": "appearance.layout_profile",
@@ -2894,6 +2902,14 @@ class LayoutPage(BasePage):
         self._debug_loaded = False
         self._debug_busy = False
         self._confirmed_debug_enabled = False
+        self._overlay_available = False
+        self._confirmed_debug_overlay: dict[str, Any] = {
+            "enabled": False,
+            "alpha": 176,
+            "scale": 1,
+            "items": ["fps", "dirty", "bytes"],
+            "interval_ms": 1000,
+        }
         debug_card = tk.Frame(
             container,
             background=PANEL_ALT,
@@ -2922,6 +2938,14 @@ class LayoutPage(BasePage):
         ).pack(fill="x", pady=(2, 7))
 
         self.debug_enabled = tk.BooleanVar(value=False)
+        self.debug_overlay_enabled = tk.BooleanVar(value=False)
+        self.debug_overlay_alpha = tk.StringVar(value="176")
+        self.debug_overlay_scale = tk.StringVar(value="1")
+        self.debug_overlay_interval = tk.StringVar(value="1000")
+        self.debug_overlay_items = {
+            item: tk.BooleanVar(value=item in {"fps", "dirty", "bytes"})
+            for item in CH347_DEBUG_OVERLAY_ITEMS
+        }
         self.debug_fps = tk.StringVar()
         self.debug_idle_fps = tk.StringVar()
         self.debug_max_fps = tk.StringVar(value=app.tr("common.not_loaded"))
@@ -2933,6 +2957,7 @@ class LayoutPage(BasePage):
         self.debug_dirty_pixels = tk.StringVar(value=app.tr("common.not_loaded"))
         self.debug_feedback = tk.StringVar(value=app.tr("display.debug_loading"))
         self.debug_inputs: list[tk.Widget] = []
+        self.debug_overlay_inputs: list[tk.Widget] = []
 
         debug_form = ttk.Frame(debug_card, style="Panel.TFrame")
         debug_form.pack(fill="x")
@@ -2991,7 +3016,7 @@ class LayoutPage(BasePage):
 
         debug_toggle = ttk.Checkbutton(
             debug_card,
-            text=app.tr("display.debug_enabled"),
+            text=app.tr("display.debug_logging_enabled"),
             variable=self.debug_enabled,
             state="disabled",
         )
@@ -3006,6 +3031,100 @@ class LayoutPage(BasePage):
             justify="left",
             wraplength=276 if app.compact else 650,
         ).pack(fill="x", pady=(0, 6))
+
+        overlay_panel = tk.Frame(
+            debug_card,
+            background=FIELD_BG,
+            highlightbackground=OUTLINE,
+            highlightthickness=1,
+            padx=8,
+            pady=7,
+        )
+        overlay_panel.pack(fill="x", pady=(4, 7))
+        tk.Label(
+            overlay_panel,
+            text=app.tr("display.debug_overlay_title"),
+            background=FIELD_BG,
+            foreground=TEXT,
+            anchor="w",
+            font=font_spec(overlay_panel, 10, "bold"),
+        ).pack(fill="x")
+        overlay_toggle = ttk.Checkbutton(
+            overlay_panel,
+            text=app.tr("display.debug_overlay_enabled"),
+            variable=self.debug_overlay_enabled,
+            state="disabled",
+        )
+        overlay_toggle.pack(anchor="w", fill="x", pady=(4, 3))
+        self.debug_overlay_inputs.append(overlay_toggle)
+        overlay_form = ttk.Frame(overlay_panel, style="Field.TFrame")
+        overlay_form.pack(fill="x")
+        for row, (label_key, variable, start, end) in enumerate((
+            ("display.debug_overlay_alpha", self.debug_overlay_alpha, 0, 255),
+            ("display.debug_overlay_scale", self.debug_overlay_scale, 1, 2),
+            ("display.debug_overlay_interval", self.debug_overlay_interval, 250, 5000),
+        )):
+            ttk.Label(overlay_form, text=app.tr(label_key)).grid(
+                row=row, column=0, sticky="w", pady=2,
+            )
+            control = ttk.Spinbox(
+                overlay_form,
+                from_=start,
+                to=end,
+                textvariable=variable,
+                width=8,
+                state="disabled",
+            )
+            control.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=2)
+            self.debug_overlay_inputs.append(control)
+        overlay_form.columnconfigure(0, weight=1)
+        ttk.Label(
+            overlay_panel,
+            text=app.tr("display.debug_overlay_items"),
+        ).pack(anchor="w", pady=(5, 1))
+        item_grid = ttk.Frame(overlay_panel, style="Field.TFrame")
+        item_grid.pack(fill="x")
+        for index, item in enumerate(CH347_DEBUG_OVERLAY_ITEMS):
+            item_control = ttk.Checkbutton(
+                item_grid,
+                text=app.tr(DEBUG_OVERLAY_ITEM_LABEL_KEYS[item]),
+                variable=self.debug_overlay_items[item],
+                state="disabled",
+            )
+            item_control.grid(
+                row=index // 2,
+                column=index % 2,
+                sticky="w",
+                padx=(0, 8),
+                pady=1,
+            )
+            self.debug_overlay_inputs.append(item_control)
+        item_grid.columnconfigure(0, weight=1)
+        item_grid.columnconfigure(1, weight=1)
+        self.debug_overlay_status = tk.StringVar(
+            value=app.tr("display.debug_overlay_checking")
+        )
+        tk.Label(
+            overlay_panel,
+            textvariable=self.debug_overlay_status,
+            background=FIELD_BG,
+            foreground=MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=258 if app.compact else 620,
+        ).pack(fill="x", pady=(4, 3))
+        self.debug_overlay_apply_button = ttk.Button(
+            overlay_panel,
+            text=app.tr("display.debug_apply_overlay"),
+            command=self.apply_debug_overlay,
+            state="disabled",
+        )
+        self.debug_overlay_apply_button.pack(
+            fill="x" if app.compact else "none",
+            anchor="w",
+            pady=(3, 0),
+        )
+        self.debug_overlay_inputs.append(self.debug_overlay_apply_button)
 
         debug_actions = ttk.Frame(debug_card, style="Panel.TFrame")
         debug_actions.pack(fill="x")
@@ -3116,6 +3235,13 @@ class LayoutPage(BasePage):
         state = "normal" if enabled and not self._debug_busy else "disabled"
         for widget in self.debug_inputs:
             widget.configure(state=state)
+        overlay_state = (
+            "normal"
+            if enabled and self._overlay_available and not self._debug_busy
+            else "disabled"
+        )
+        for widget in self.debug_overlay_inputs:
+            widget.configure(state=overlay_state)
         self.debug_refresh_button.configure(
             state="disabled" if self._debug_busy else "normal"
         )
@@ -3137,6 +3263,10 @@ class LayoutPage(BasePage):
         self._debug_busy = False
         if not result.ok:
             self._debug_loaded = False
+            self._overlay_available = False
+            self.debug_overlay_status.set(
+                self.app.tr("display.debug_overlay_unavailable")
+            )
             self._set_debug_controls(False)
             self._set_debug_dirty_counters(None)
             message = self.app.tr(
@@ -3188,6 +3318,38 @@ class LayoutPage(BasePage):
             {"configured": configured, "application": application},
         ))
         self._set_debug_dirty_counters(debug)
+        overlay = debug.get("overlay")
+        if not isinstance(overlay, dict):
+            overlay = {
+                "available": False,
+                "enabled": False,
+                "alpha": 176,
+                "scale": 1,
+                "items": ["fps", "dirty", "bytes"],
+                "interval_ms": 1000,
+            }
+        self._overlay_available = overlay.get("available") is True
+        self._confirmed_debug_overlay = {
+            "enabled": bool(overlay.get("enabled", False)),
+            "alpha": int(overlay.get("alpha", 176)),
+            "scale": int(overlay.get("scale", 1)),
+            "items": list(overlay.get("items", ["fps", "dirty", "bytes"])),
+            "interval_ms": int(overlay.get("interval_ms", 1000)),
+        }
+        self.debug_overlay_enabled.set(self._confirmed_debug_overlay["enabled"])
+        self.debug_overlay_alpha.set(str(self._confirmed_debug_overlay["alpha"]))
+        self.debug_overlay_scale.set(str(self._confirmed_debug_overlay["scale"]))
+        self.debug_overlay_interval.set(
+            str(self._confirmed_debug_overlay["interval_ms"])
+        )
+        selected_items = set(self._confirmed_debug_overlay["items"])
+        for item, variable in self.debug_overlay_items.items():
+            variable.set(item in selected_items)
+        self.debug_overlay_status.set(self.app.tr(
+            "display.debug_overlay_ready"
+            if self._overlay_available
+            else "display.debug_overlay_unavailable"
+        ))
 
         observed = debug.get("observed_fps")
         panel_fps = debug.get("panel_fps")
@@ -3355,6 +3517,107 @@ class LayoutPage(BasePage):
             lambda: self.app.model.ch347_set_debug(selected),
             self._debug_mode_applied,
         )
+
+    def _selected_debug_overlay(self) -> dict[str, Any]:
+        return {
+            "enabled": bool(self.debug_overlay_enabled.get()),
+            "alpha": self._debug_integer(
+                self.debug_overlay_alpha,
+                self.app.tr("display.debug_overlay_alpha"),
+            ),
+            "scale": self._debug_integer(
+                self.debug_overlay_scale,
+                self.app.tr("display.debug_overlay_scale"),
+            ),
+            "items": [
+                item
+                for item in CH347_DEBUG_OVERLAY_ITEMS
+                if self.debug_overlay_items[item].get()
+            ],
+            "interval_ms": self._debug_integer(
+                self.debug_overlay_interval,
+                self.app.tr("display.debug_overlay_interval"),
+            ),
+        }
+
+    def apply_debug_overlay(self) -> None:
+        if not self._overlay_available:
+            self.debug_overlay_status.set(
+                self.app.tr("display.debug_overlay_unavailable")
+            )
+            return
+        try:
+            selected = self._selected_debug_overlay()
+        except ValueError as exc:
+            self.debug_overlay_status.set(str(exc))
+            return
+        if selected == self._confirmed_debug_overlay:
+            self.debug_overlay_status.set(
+                self.app.tr("display.debug_overlay_unchanged")
+            )
+            return
+        if not messagebox.askyesno(
+            self.app.tr("display.debug_overlay_confirm_title"),
+            self.app.tr("display.debug_overlay_confirm_body"),
+            parent=self.app.root,
+            icon="warning",
+            default=messagebox.NO,
+        ):
+            self._load_debug_overlay_controls(self._confirmed_debug_overlay)
+            self.debug_overlay_status.set(
+                self.app.tr("display.debug_overlay_cancelled")
+            )
+            return
+        self._debug_busy = True
+        self._set_debug_controls(False)
+        self.debug_overlay_status.set(
+            self.app.tr("status.applying_ch347_debug_overlay")
+        )
+        self.app.run_task(
+            self.app.tr("status.applying_ch347_debug_overlay"),
+            lambda: self.app.model.ch347_set_debug({
+                "enabled": self._confirmed_debug_enabled,
+                "overlay": selected,
+            }),
+            self._debug_overlay_applied,
+        )
+
+    def _load_debug_overlay_controls(self, overlay: dict[str, Any]) -> None:
+        self.debug_overlay_enabled.set(bool(overlay["enabled"]))
+        self.debug_overlay_alpha.set(str(overlay["alpha"]))
+        self.debug_overlay_scale.set(str(overlay["scale"]))
+        self.debug_overlay_interval.set(str(overlay["interval_ms"]))
+        selected_items = set(overlay["items"])
+        for item, variable in self.debug_overlay_items.items():
+            variable.set(item in selected_items)
+
+    def _debug_overlay_applied(self, result: OperationResult) -> bool:
+        self._debug_busy = False
+        if not result.ok:
+            self._load_debug_overlay_controls(self._confirmed_debug_overlay)
+            self._set_debug_controls(self._debug_loaded)
+            message = self.app.tr(
+                "display.debug_overlay_apply_failed",
+                {"message": result.message or result.code},
+            )
+            self.debug_overlay_status.set(message)
+            self.app.set_status(message, error=True)
+            return True
+        debug = result.data.get("debug")
+        overlay = debug.get("overlay") if isinstance(debug, dict) else None
+        if not isinstance(overlay, dict) or overlay.get("available") is not True:
+            self._overlay_available = False
+            self._load_debug_overlay_controls(self._confirmed_debug_overlay)
+            self._set_debug_controls(self._debug_loaded)
+            message = self.app.tr("display.debug_overlay_not_applied")
+            self.debug_overlay_status.set(message)
+            self.app.set_status(message, error=True)
+            return True
+        self._load_debug_state(debug)
+        message = self.app.tr("display.debug_overlay_applied")
+        self.debug_overlay_status.set(message)
+        self.app.set_status(message)
+        return True
 
     def _debug_mode_applied(self, result: OperationResult) -> bool:
         self._debug_busy = False
