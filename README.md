@@ -1,5 +1,12 @@
 # MSYS Settings
 
+## 0.2.19 Bounded interactive repaint
+
+Wi-Fi password edits now change button/entry state only when the effective
+state changes. Desktop navigation search uses a short debounce and preserves
+already-visible packed buttons. Appearance preview edits reuse existing Canvas
+items behind a 50 ms debounce instead of deleting and rebuilding the surface.
+
 ## 0.2.18 Truthful Bluetooth discovery
 
 Bluetooth discovery now requests a real 15-second RF window, preserves typed

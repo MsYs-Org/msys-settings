@@ -136,6 +136,40 @@ def _replace_text(widget: tk.Text, value: Any) -> None:
     widget.configure(state="disabled")
 
 
+def _configure_if_changed(widget: Any, **options: Any) -> bool:
+    """Configure only options whose rendered Tcl value actually changed."""
+
+    changed: dict[str, Any] = {}
+    for name, value in options.items():
+        try:
+            current = widget.cget(name)
+        except (KeyError, tk.TclError):
+            changed[name] = value
+            continue
+        if current != value and str(current) != str(value):
+            changed[name] = value
+    if not changed:
+        return False
+    widget.configure(**changed)
+    return True
+
+
+def _replace_after(
+    scheduler: Any,
+    previous: Any,
+    delay_ms: int,
+    callback: Callable[[], None],
+) -> Any:
+    """Replace one short debounce timer without retaining obsolete callbacks."""
+
+    if previous is not None:
+        try:
+            scheduler.after_cancel(previous)
+        except tk.TclError:
+            pass
+    return scheduler.after(delay_ms, callback)
+
+
 def _insets_text(value: Any) -> str:
     if value is None or value == "auto":
         return "auto"
@@ -195,6 +229,8 @@ class SettingsApplication:
         self.metrics = layout_metrics(self.root.winfo_screenwidth())
         self._nav_buttons: dict[str, ttk.Button] = {}
         self._page_titles: dict[str, str] = {}
+        self._nav_visible: frozenset[str] = frozenset()
+        self._nav_filter_after: Any = None
         self._build_style()
         self._size_window()
         self._build_shell()
@@ -318,7 +354,7 @@ class SettingsApplication:
             self.search = tk.StringVar()
             search = ttk.Entry(nav, textvariable=self.search)
             search.pack(fill="x", pady=(0, 12))
-            self.search.trace_add("write", lambda *_args: self._filter_navigation())
+            self.search.trace_add("write", self._schedule_navigation_filter)
             self.search_empty = ttk.Label(
                 nav,
                 text=self.tr("nav.no_results"),
@@ -360,6 +396,7 @@ class SettingsApplication:
             self._pages[key] = page
         content.rowconfigure(0, weight=1)
         content.columnconfigure(0, weight=1)
+        self._nav_visible = frozenset(self._nav_buttons)
         footer = ttk.Frame(self.root, padding=(8, 3))
         footer.pack(fill="x", side="bottom")
         ttk.Label(footer, textvariable=self.status, style="Status.TLabel").pack(
@@ -369,18 +406,54 @@ class SettingsApplication:
             self.activity.pack(in_=footer, side="right")
         self.show_page("home")
 
+    def _schedule_navigation_filter(self, *_args: Any) -> None:
+        if self.compact:
+            return
+        self._nav_filter_after = _replace_after(
+            self.root,
+            self._nav_filter_after,
+            55,
+            self._run_navigation_filter,
+        )
+
+    def _run_navigation_filter(self) -> None:
+        self._nav_filter_after = None
+        self._filter_navigation()
+
     def _filter_navigation(self) -> None:
         if self.compact:
             return
-        visible = set(filter_navigation(self.search.get(), self._nav_entries))
-        for key, _label in self._nav_entries:
+        visible = frozenset(filter_navigation(self.search.get(), self._nav_entries))
+        if visible == self._nav_visible:
+            return
+        for key in self._nav_visible - visible:
             button = self._nav_buttons[key]
-            button.pack_forget()
-            if key in visible:
+            if button.winfo_manager():
+                button.pack_forget()
+        ordered = [key for key, _label in self._nav_entries if key in visible]
+        for position in range(len(ordered) - 1, -1, -1):
+            key = ordered[position]
+            button = self._nav_buttons[key]
+            if button.winfo_manager():
+                continue
+            next_button = next(
+                (
+                    self._nav_buttons[candidate]
+                    for candidate in ordered[position + 1 :]
+                    if self._nav_buttons[candidate].winfo_manager()
+                ),
+                None,
+            )
+            if next_button is None:
                 button.pack(fill="x", pady=2)
-        self.search_empty.pack_forget()
-        if not visible:
+            else:
+                button.pack(fill="x", pady=2, before=next_button)
+        empty_visible = bool(self.search_empty.winfo_manager())
+        if visible and empty_visible:
+            self.search_empty.pack_forget()
+        elif not visible and not empty_visible:
             self.search_empty.pack(anchor="w", pady=8)
+        self._nav_visible = visible
 
     def show_page(self, name: str) -> None:
         if name == "overview":  # compatibility with the pre-0.2 page key
@@ -1850,23 +1923,28 @@ class RadioPage(BasePage):
         row = self.selected_network()
         configured = bool(row and row.get("configured") is True)
         open_network = bool(row and row.get("security") == "open")
-        if configured and self.password.get():
+        password = self.password.get()
+        if (configured or open_network) and password:
             self.password.set("")
-        if open_network and self.password.get():
-            self.password.set("")
-        password_ready = configured or open_network or bool(self.password.get())
+            password = ""
+        password_ready = configured or open_network or bool(password)
         can_connect = bool(row) and self._network_actions_enabled and password_ready
-        self.connect_button.configure(state="normal" if can_connect else "disabled")
+        _configure_if_changed(
+            self.connect_button,
+            state="normal" if can_connect else "disabled",
+        )
         can_forget = bool(
             row
             and configured
             and isinstance(row.get("network_id"), int)
             and not isinstance(row.get("network_id"), bool)
         )
-        self.forget_button.configure(
+        _configure_if_changed(
+            self.forget_button,
             state="normal" if self._network_actions_enabled and can_forget else "disabled"
         )
-        self.password_entry.configure(
+        _configure_if_changed(
+            self.password_entry,
             state="normal"
             if self._network_actions_enabled and row and not configured and not open_network
             else "disabled"
@@ -3450,6 +3528,8 @@ class AppearancePage(BasePage):
         self.show_labels = tk.BooleanVar(value=True)
         self.sort = tk.StringVar(value=self._sort_labels["name"])
         self.message = tk.StringVar(value=app.tr("common.not_loaded"))
+        self._preview_after: Any = None
+        self._preview_signature: tuple[Any, ...] | None = None
 
         form = ttk.Frame(container, style="Panel.TFrame")
         form.pack(fill="x")
@@ -3514,7 +3594,7 @@ class AppearancePage(BasePage):
                 form,
                 text=app.tr("appearance.show_labels"),
                 variable=self.show_labels,
-                command=self._draw_preview,
+                command=self._schedule_preview,
             ).grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
         else:
             controls = (
@@ -3561,7 +3641,7 @@ class AppearancePage(BasePage):
                 form,
                 text=app.tr("appearance.show_labels"),
                 variable=self.show_labels,
-                command=self._draw_preview,
+                command=self._schedule_preview,
             ).grid(row=3, column=2, sticky="w", padx=4, pady=(3, 0))
 
         actions = ttk.Frame(container, style="Panel.TFrame")
@@ -3585,10 +3665,30 @@ class AppearancePage(BasePage):
             highlightbackground=PANEL_ALT,
         )
         self.preview.pack(fill="x", pady=(2, 0))
-        self.preview.bind("<Configure>", lambda _event: self._draw_preview())
+        self._preview_bar = self.preview.create_rectangle(
+            0, 0, 1, 1, fill=ACCENT, outline=""
+        )
+        preview_labels = (
+            self.app.tr("appearance.preview_settings"),
+            self.app.tr("appearance.preview_files"),
+            self.app.tr("appearance.preview_app"),
+        )
+        self._preview_icons = tuple(
+            self.preview.create_rectangle(
+                0, 0, 1, 1, fill=ACCENT, outline="#eef4fa"
+            )
+            for _label in preview_labels
+        )
+        self._preview_labels = tuple(
+            self.preview.create_text(
+                0, 0, text=label, fill=TEXT, font=font_spec(self.preview, 8)
+            )
+            for label in preview_labels
+        )
+        self.preview.bind("<Configure>", self._schedule_preview)
         for variable in (self.wallpaper, self.accent, self.icon_size):
-            variable.trace_add("write", lambda *_args: self._draw_preview())
-        self._draw_preview()
+            variable.trace_add("write", self._schedule_preview)
+        self._schedule_preview()
 
     @staticmethod
     def _field(
@@ -3631,43 +3731,52 @@ class AppearancePage(BasePage):
                 return value
         return fallback
 
+    def _schedule_preview(self, *_args: Any) -> None:
+        self._preview_after = _replace_after(
+            self,
+            self._preview_after,
+            50,
+            self._draw_preview,
+        )
+
     def _draw_preview(self) -> None:
+        self._preview_after = None
         if not hasattr(self, "preview"):
             return
         canvas = self.preview
-        canvas.delete("all")
         width = max(canvas.winfo_width(), 180)
         height = max(canvas.winfo_height(), 80)
         wallpaper = self._preview_color(self.wallpaper.get(), BG)
         accent = self._preview_color(self.accent.get(), ACCENT)
-        canvas.configure(bg=wallpaper)
-        canvas.create_rectangle(0, 0, width, 8, fill=accent, outline="")
         try:
             requested = max(40, min(96, int(self.icon_size.get())))
         except ValueError:
             requested = 64
+        show_labels = self.show_labels.get()
+        signature = (width, height, wallpaper, accent, requested, show_labels)
+        if signature == self._preview_signature:
+            return
+        self._preview_signature = signature
+        _configure_if_changed(canvas, bg=wallpaper)
+        canvas.coords(self._preview_bar, 0, 0, width, 8)
+        canvas.itemconfigure(self._preview_bar, fill=accent)
         icon = max(18, min(42, int(requested * 0.44)))
         spacing = width / 4
-        y = max(14, (height - icon - (18 if self.show_labels.get() else 0)) / 2)
-        for index, label in enumerate(
-            (
-                self.app.tr("appearance.preview_settings"),
-                self.app.tr("appearance.preview_files"),
-                self.app.tr("appearance.preview_app"),
-            ),
-            start=1,
+        y = max(14, (height - icon - (18 if show_labels else 0)) / 2)
+        for index, (icon_item, label_item) in enumerate(
+            zip(self._preview_icons, self._preview_labels), start=1
         ):
             center = int(spacing * index)
-            canvas.create_rectangle(
+            canvas.coords(
+                icon_item,
                 center - icon // 2,
                 y,
                 center + icon // 2,
                 y + icon,
-                fill=accent,
-                outline="#eef4fa",
             )
-            if self.show_labels.get():
-                canvas.create_text(center, y + icon + 9, text=label, fill=TEXT, font=font_spec(canvas, 8))
+            canvas.itemconfigure(icon_item, fill=accent)
+            canvas.coords(label_item, center, y + icon + 9)
+            canvas.itemconfigure(label_item, state="normal" if show_labels else "hidden")
 
     def refresh(self) -> None:
         self.app.run_task(
@@ -3719,7 +3828,7 @@ class AppearancePage(BasePage):
         self.show_labels.set(bool(preferences.get("show_labels", True)))
         sort = str(preferences.get("sort", "name"))
         self.sort.set(self._sort_labels.get(sort, sort))
-        self._draw_preview()
+        self._schedule_preview()
 
     def _layout_value(self) -> str:
         return _choice_value(self.layout.get(), self._layout_labels).strip().lower()
