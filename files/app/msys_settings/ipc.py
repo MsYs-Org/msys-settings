@@ -194,6 +194,8 @@ class ComponentChannel:
         self._pending: dict[int, queue.Queue[dict[str, Any] | BaseException]] = {}
         self._pump_lock = threading.Lock()
         self._pump_thread: threading.Thread | None = None
+        self._call_queue: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=8)
+        self._handler_thread: threading.Thread | None = None
 
     @classmethod
     def from_env(cls) -> "ComponentChannel | None":
@@ -337,7 +339,52 @@ class ComponentChannel:
                 daemon=True,
             )
             self._pump_thread = thread
+            if call_handler is not None:
+                handler = threading.Thread(
+                    target=self._handle_incoming_calls,
+                    args=(call_handler,),
+                    name=f"settings-mipc-calls:{self.component_id}",
+                    daemon=True,
+                )
+                self._handler_thread = handler
+                handler.start()
             thread.start()
+
+    def _handle_incoming_calls(
+        self,
+        call_handler: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> None:
+        """Keep inbound handlers away from the one socket reader.
+
+        A Settings method may legitimately call Core before replying. Running
+        it inline in ``pump`` would block the only reader which can receive
+        that nested return. One bounded serial queue preserves call order and
+        avoids an unbounded thread-per-request policy.
+        """
+
+        while not self._closed.is_set():
+            try:
+                message = self._call_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if message is None:
+                return
+            request_id = message.get("id")
+            if not isinstance(request_id, int) or isinstance(request_id, bool):
+                continue
+            try:
+                result = call_handler(message)
+                self.send({"type": "return", "id": request_id, "payload": result})
+            except BaseException as exc:
+                try:
+                    self.send({
+                        "type": "error",
+                        "id": request_id,
+                        "code": "CALL_FAILED",
+                        "message": str(exc)[:256],
+                    })
+                except OSError:
+                    return
 
     def _fail_pending(self, error: BaseException) -> None:
         with self._pending_lock:
@@ -392,14 +439,13 @@ class ComponentChannel:
                     })
                     continue
                 try:
-                    result = call_handler(message)
-                    self.send({"type": "return", "id": request_id, "payload": result})
-                except BaseException as exc:
+                    self._call_queue.put_nowait(message)
+                except queue.Full:
                     self.send({
                         "type": "error",
                         "id": request_id,
-                        "code": "CALL_FAILED",
-                        "message": str(exc)[:256],
+                        "code": "CALL_QUEUE_FULL",
+                        "message": "Settings call queue is full",
                     })
                 continue
             if message.get("type") == "event":
@@ -409,6 +455,10 @@ class ComponentChannel:
         if self._closed.is_set():
             return
         self._closed.set()
+        try:
+            self._call_queue.put_nowait(None)
+        except queue.Full:
+            pass
         self._fail_pending(MipcUnavailable("component mIPC channel closed"))
         try:
             self.sock.shutdown(socket.SHUT_RDWR)

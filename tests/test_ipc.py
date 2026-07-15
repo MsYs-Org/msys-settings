@@ -88,6 +88,44 @@ class ComponentChannelTests(unittest.TestCase):
             "payload": {"handled": True, "page": "home"},
         })
 
+    def test_inbound_handler_can_make_nested_core_call_without_reader_deadlock(self) -> None:
+        app_socket, daemon_socket = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        channel = ComponentChannel(app_socket, "org.msys.settings:main", 9)
+
+        def handler(_message: dict) -> dict:
+            return channel.call(
+                "msys.core",
+                "set_session_preferences",
+                {"language": "zh-CN"},
+                timeout=1,
+            )
+
+        channel.start(lambda _message: None, call_handler=handler)
+        daemon_socket.send(json.dumps({
+            "type": "call",
+            "id": 43,
+            "target": "org.msys.settings:main",
+            "method": "set_language",
+            "payload": {"language": "zh-CN"},
+        }).encode("utf-8"))
+        nested = json.loads(daemon_socket.recv(65536).decode("utf-8"))
+        self.assertEqual(nested["target"], "msys.core")
+        self.assertEqual(nested["method"], "set_session_preferences")
+        daemon_socket.send(json.dumps({
+            "type": "return",
+            "id": nested["id"],
+            "payload": {"ok": True, "language": "zh-CN"},
+        }).encode("utf-8"))
+        response = json.loads(daemon_socket.recv(65536).decode("utf-8"))
+        channel.close()
+        daemon_socket.close()
+
+        self.assertEqual(response, {
+            "type": "return",
+            "id": 43,
+            "payload": {"ok": True, "language": "zh-CN"},
+        })
+
     def test_private_rpc_preserves_events_and_manifest_identity(self) -> None:
         app_socket, daemon_socket = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         channel = ComponentChannel(app_socket, "org.msys.settings:main", 8)
