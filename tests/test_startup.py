@@ -14,7 +14,7 @@ class SupervisedStartupTests(unittest.TestCase):
         ast.parse(source, feature_version=(3, 10))
         self.assertIn("defer_initial_refresh=channel is not None", source)
         handshake = source.index("channel.handshake(")
-        reader = source.index("channel.start(app.post_event)")
+        reader = source.index("channel.start(app.post_event, call_handler=app.handle_call)")
         refresh = source.index("app.start_initial_refresh()")
         run = source.index("app.run()")
         self.assertLess(handshake, reader)

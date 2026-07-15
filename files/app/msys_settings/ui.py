@@ -221,6 +221,7 @@ class SettingsApplication:
         self._busy = 0
         self._pages: dict[str, BasePage] = {}
         self._active_page = "home"
+        self._page_history: list[str] = []
         self.compact = is_compact(self.root.winfo_screenwidth())
         configure_tk_fonts(
             self.root,
@@ -319,7 +320,7 @@ class SettingsApplication:
                 text="<",
                 style="Icon.TButton",
                 width=3,
-                command=lambda: self.show_page("home"),
+                command=self.navigate_back,
             )
             self.back_button.pack(side="left")
             self.header_title = ttk.Label(
@@ -455,10 +456,17 @@ class SettingsApplication:
             self.search_empty.pack(anchor="w", pady=8)
         self._nav_visible = visible
 
-    def show_page(self, name: str) -> None:
+    def show_page(self, name: str, *, record_history: bool = True) -> None:
         if name == "overview":  # compatibility with the pre-0.2 page key
             name = "system"
         page = self._pages[name]
+        if (
+            record_history
+            and name != self._active_page
+            and self._active_page in self._pages
+        ):
+            self._page_history.append(self._active_page)
+            del self._page_history[:-16]
         self._active_page = name
         self.page_title.set(self._page_titles.get(name, self.tr("app.title")))
         if self.compact and self.back_button is not None:
@@ -473,6 +481,32 @@ class SettingsApplication:
         page.tkraise()
         if self._initial_refresh_enabled:
             page.on_show()
+
+    def navigate_back(self) -> bool:
+        """Return to the previous in-app page without ending the component."""
+
+        while self._page_history:
+            target = self._page_history.pop()
+            if target in self._pages and target != self._active_page:
+                self.show_page(target, record_history=False)
+                return True
+        if self._active_page != "home" and "home" in self._pages:
+            self.show_page("home", record_history=False)
+            return True
+        return False
+
+    def handle_call(self, message: dict[str, Any]) -> dict[str, Any]:
+        """Run the language-neutral application navigation call on Tk's thread."""
+
+        method = str(message.get("method") or "")
+        if method != "navigation_back":
+            return {"handled": False, "reason": "method-not-supported"}
+        reply: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
+        self._ui_queue.put(("navigation_back", None, reply))
+        try:
+            return reply.get(timeout=1.0)
+        except queue.Empty:
+            return {"handled": False, "reason": "ui-timeout"}
 
     def start_initial_refresh(self) -> None:
         """Enable page loading after the component RPC reader is running."""
@@ -572,6 +606,16 @@ class SettingsApplication:
                             or self.tr("common.operation_failed"),
                             error=True,
                         )
+            elif kind == "navigation_back":
+                reply: queue.Queue[dict[str, Any]] = second
+                result = {
+                    "handled": self.navigate_back(),
+                    "page": self._active_page,
+                }
+                try:
+                    reply.put_nowait(result)
+                except queue.Full:
+                    pass
             elif kind == "event":
                 event: dict[str, Any] = first
                 topic = str(event.get("topic", ""))

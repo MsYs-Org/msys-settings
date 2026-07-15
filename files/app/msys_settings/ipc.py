@@ -321,13 +321,18 @@ class ComponentChannel:
                 if self._pending.get(request_id) is waiter:
                     del self._pending[request_id]
 
-    def start(self, callback: Callable[[dict[str, Any]], None]) -> None:
+    def start(
+        self,
+        callback: Callable[[dict[str, Any]], None],
+        *,
+        call_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
         with self._pump_lock:
             if self._pump_thread is not None:
                 raise MipcError("component mIPC reader is already running")
             thread = threading.Thread(
                 target=self.pump,
-                args=(callback,),
+                args=(callback, call_handler),
                 name=f"settings-mipc:{self.component_id}",
                 daemon=True,
             )
@@ -344,7 +349,11 @@ class ComponentChannel:
             except queue.Full:
                 pass
 
-    def pump(self, callback: Callable[[dict[str, Any]], None]) -> None:
+    def pump(
+        self,
+        callback: Callable[[dict[str, Any]], None],
+        call_handler: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
         while not self._closed.is_set():
             try:
                 message = self.recv(timeout=1.0)
@@ -370,6 +379,29 @@ class ComponentChannel:
                     except queue.Full:
                         pass
                     continue
+            if message.get("type") == "call":
+                request_id = message.get("id")
+                if not isinstance(request_id, int) or isinstance(request_id, bool):
+                    continue
+                if call_handler is None:
+                    self.send({
+                        "type": "error",
+                        "id": request_id,
+                        "code": "METHOD_NOT_FOUND",
+                        "message": str(message.get("method") or ""),
+                    })
+                    continue
+                try:
+                    result = call_handler(message)
+                    self.send({"type": "return", "id": request_id, "payload": result})
+                except BaseException as exc:
+                    self.send({
+                        "type": "error",
+                        "id": request_id,
+                        "code": "CALL_FAILED",
+                        "message": str(exc)[:256],
+                    })
+                continue
             if message.get("type") == "event":
                 callback(message)
 

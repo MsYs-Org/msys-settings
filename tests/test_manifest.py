@@ -19,7 +19,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.2.19")
+        self.assertEqual(__version__, "0.2.20")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -46,6 +46,14 @@ class ManifestTests(unittest.TestCase):
         component = manifest["components"][0]
         self.assertEqual(component["runtime"], "tk")
         self.assertEqual(component["readiness"]["mode"], "mipc-ready")
+        self.assertIn(
+            {
+                "interface": "org.msys.application-navigation.v1",
+                "exclusive": False,
+                "priority": 100,
+            },
+            component["provides"],
+        )
         self.assertTrue(component["activation"]["launchable"])
         self.assertEqual(component["activation"]["intents"][0]["action"], "settings-panel")
         self.assertEqual(component["isolation"], "baseline")

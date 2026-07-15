@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.2.19",
+    "version": "0.2.20",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -38,6 +38,13 @@
         "mode": "mipc-ready",
         "timeout_ms": 8000
       },
+      "provides": [
+        {
+          "interface": "org.msys.application-navigation.v1",
+          "exclusive": false,
+          "priority": 100
+        }
+      ],
       "permissions": [
         "display:x11",
         "mipc.call:msys.core",

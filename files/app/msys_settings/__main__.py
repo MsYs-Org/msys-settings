@@ -18,7 +18,7 @@ def main() -> int:
     try:
         if channel is not None:
             channel.handshake(SettingsApplication.EVENT_TOPICS)
-            channel.start(app.post_event)
+            channel.start(app.post_event, call_handler=app.handle_call)
             app.start_initial_refresh()
         else:
             app.set_status(app.tr("status.standalone"))

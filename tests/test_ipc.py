@@ -61,6 +61,33 @@ class PublicMipcClientTests(unittest.TestCase):
 
 @unittest.skipUnless(hasattr(socket, "SOCK_SEQPACKET"), "SOCK_SEQPACKET unavailable")
 class ComponentChannelTests(unittest.TestCase):
+    def test_private_inbound_navigation_call_returns_handler_result(self) -> None:
+        app_socket, daemon_socket = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+        channel = ComponentChannel(app_socket, "org.msys.settings:main", 8)
+        channel.start(
+            lambda _message: None,
+            call_handler=lambda message: {
+                "handled": message.get("method") == "navigation_back",
+                "page": "home",
+            },
+        )
+        daemon_socket.send(json.dumps({
+            "type": "call",
+            "id": 42,
+            "target": "org.msys.settings:main",
+            "method": "navigation_back",
+            "payload": {},
+        }).encode("utf-8"))
+        response = json.loads(daemon_socket.recv(65536).decode("utf-8"))
+        channel.close()
+        daemon_socket.close()
+
+        self.assertEqual(response, {
+            "type": "return",
+            "id": 42,
+            "payload": {"handled": True, "page": "home"},
+        })
+
     def test_private_rpc_preserves_events_and_manifest_identity(self) -> None:
         app_socket, daemon_socket = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         channel = ComponentChannel(app_socket, "org.msys.settings:main", 8)
