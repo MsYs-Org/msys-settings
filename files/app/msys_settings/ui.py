@@ -553,6 +553,22 @@ class SettingsApplication:
             return
         self._initial_refresh_enabled = True
         self._pages[self._active_page].on_show()
+        future = self._tasks.submit(self.model.client.get_session_preferences)
+
+        def session_loaded(done: Any) -> None:
+            try:
+                payload = done.result()
+            except BaseException:
+                return
+            if isinstance(payload, dict):
+                self.post_event({
+                    "type": "event",
+                    "topic": "msys.session.preferences.changed",
+                    "source": "msys.core",
+                    "payload": payload,
+                })
+
+        future.add_done_callback(session_loaded)
 
     def set_status(self, message: str, *, error: bool = False) -> None:
         self.status.set(message)
