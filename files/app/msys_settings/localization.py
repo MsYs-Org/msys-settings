@@ -422,6 +422,7 @@ ENGLISH_FALLBACK.update(
         "display.debug_overlay_item_fps": "FPS",
         "display.debug_overlay_item_dirty": "Dirty region",
         "display.debug_overlay_item_bytes": "Transferred bytes",
+        "display.debug_overlay_item_cpu": "CPU usage",
         "display.debug_overlay_item_bbox": "Bounding box",
         "display.debug_overlay_item_memory": "Memory",
         "display.debug_overlay_checking": "Checking provider support...",

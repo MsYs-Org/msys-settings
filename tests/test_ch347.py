@@ -9,6 +9,7 @@ from msys_settings.model import (
     CH347_DEBUG_OVERLAY_ITEMS,
     CH347_CONTROL_SCHEMA,
     CH347_DEVICE,
+    DEFAULT_CH347_DEBUG_OVERLAY,
     SettingsModel,
     normalise_ch347_debug_response,
     normalise_ch347_touch_cursor,
@@ -63,7 +64,7 @@ def debug_response(**changes):
             "enabled": False,
             "alpha": 176,
             "scale": 1,
-            "items": ["fps", "dirty", "bytes"],
+            "items": ["fps", "dirty", "bytes", "cpu"],
             "interval_ms": 1000,
         },
         "touch_cursor": {
@@ -278,7 +279,7 @@ class Ch347Tests(unittest.TestCase):
                 "enabled": True,
                 "alpha": 128,
                 "scale": 2,
-                "items": ["fps", "memory"],
+                "items": ["memory", "cpu", "bytes", "dirty", "fps"],
                 "interval_ms": 500,
             },
         })
@@ -294,6 +295,10 @@ class Ch347Tests(unittest.TestCase):
         self.assertTrue(changed_overlay.ok)
         self.assertEqual(changed_overlay.data["debug"]["overlay"]["alpha"], 128)
         self.assertTrue(changed_overlay.data["debug"]["overlay"]["available"])
+        self.assertEqual(
+            changed_overlay.data["debug"]["overlay"]["items"],
+            ["fps", "dirty", "bytes", "cpu", "memory"],
+        )
         self.assertTrue(changed_cursor.ok)
         self.assertTrue(changed_cursor.data["debug"]["touch_cursor"]["available"])
         self.assertTrue(changed_cursor.data["debug"]["touch_cursor"]["enabled"])
@@ -306,6 +311,22 @@ class Ch347Tests(unittest.TestCase):
         self.assertIn(("set_fps", 30, 0), client.calls)
         self.assertIn(("get_debug",), client.calls)
         self.assertIn(("set_debug", True), client.calls)
+        self.assertIn(
+            (
+                "set_debug",
+                {
+                    "enabled": True,
+                    "overlay": {
+                        "enabled": True,
+                        "alpha": 128,
+                        "scale": 2,
+                        "items": ["fps", "dirty", "bytes", "cpu", "memory"],
+                        "interval_ms": 500,
+                    },
+                },
+            ),
+            client.calls,
+        )
         self.assertEqual(
             next(call for call in client.calls if call[0] == "set_touch_calibration")[1],
             CALIBRATION,
@@ -434,7 +455,10 @@ class Ch347Tests(unittest.TestCase):
         self.assertFalse(overlay["enabled"])
         self.assertEqual(overlay["alpha"], 176)
         self.assertEqual(overlay["scale"], 1)
-        self.assertEqual(overlay["items"], ["fps", "dirty", "bytes"])
+        self.assertEqual(
+            overlay["items"],
+            ["fps", "dirty", "bytes", "cpu"],
+        )
         self.assertEqual(overlay["interval_ms"], 1000)
 
     def test_touch_cursor_contract_is_capability_gated_and_strict(self) -> None:
@@ -497,13 +521,20 @@ class Ch347Tests(unittest.TestCase):
             "enabled": True,
             "alpha": 0,
             "scale": 2,
-            "items": ["memory", "fps"],
+            "items": ["memory", "cpu", "bytes", "dirty", "fps"],
             "interval_ms": 250,
         })
-        self.assertEqual(selected["items"], ["fps", "memory"])
-        self.assertEqual(set(CH347_DEBUG_OVERLAY_ITEMS), {
-            "fps", "dirty", "bytes", "bbox", "memory",
-        })
+        self.assertEqual(
+            selected["items"],
+            ["fps", "dirty", "bytes", "cpu", "memory"],
+        )
+        self.assertEqual(CH347_DEBUG_OVERLAY_ITEMS, (
+            "fps", "dirty", "bytes", "cpu", "bbox", "memory",
+        ))
+        self.assertEqual(
+            DEFAULT_CH347_DEBUG_OVERLAY["items"],
+            ["fps", "dirty", "bytes", "cpu"],
+        )
         self.assertEqual(validate_ch347_debug_request(False), {"enabled": False})
         for overlay in (
             {"enabled": False, "alpha": 256, "scale": 1, "items": ["fps"], "interval_ms": 1000},

@@ -113,6 +113,8 @@ class UiContractTests(unittest.TestCase):
         self.assertIn('"items": [', layout_page)
         self.assertIn('"interval_ms": self._debug_integer(', layout_page)
         self.assertIn('self.app.tr("display.debug_overlay_not_applied")', layout_page)
+        self.assertIn('style="Accent.TCheckbutton" if item == "cpu"', layout_page)
+        self.assertIn("ScrollableSurface(self, background=PANEL)", layout_page)
 
     def test_display_capability_gates_touch_cursor_and_confirms_write_receipt(self) -> None:
         source = self._source()

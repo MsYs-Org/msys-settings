@@ -20,6 +20,7 @@ from .model import (
     CH347_CONTROL_SCHEMA,
     CH347_DEBUG_OVERLAY_ITEMS,
     CH347_DEVICE,
+    DEFAULT_CH347_DEBUG_OVERLAY,
     DESKTOP_LAYOUTS,
     DESKTOP_SORTS,
     DISPLAY_MIGRATION_TERMINAL_PHASES,
@@ -82,6 +83,7 @@ DEBUG_OVERLAY_ITEM_LABEL_KEYS = {
     "fps": "display.debug_overlay_item_fps",
     "dirty": "display.debug_overlay_item_dirty",
     "bytes": "display.debug_overlay_item_bytes",
+    "cpu": "display.debug_overlay_item_cpu",
     "bbox": "display.debug_overlay_item_bbox",
     "memory": "display.debug_overlay_item_memory",
 }
@@ -291,6 +293,17 @@ class SettingsApplication:
         style.configure("TSpinbox", fieldbackground=FIELD_BG, foreground=TEXT, arrowsize=18)
         style.configure("TCheckbutton", background=PANEL, foreground=TEXT, padding=5)
         style.map("TCheckbutton", background=[("active", PANEL_ALT)])
+        style.configure(
+            "Accent.TCheckbutton",
+            background=ACCENT_CONTAINER,
+            foreground=TEXT,
+            padding=7,
+            font=font_spec(self.root, 10, "bold"),
+        )
+        style.map(
+            "Accent.TCheckbutton",
+            background=[("active", ACCENT_CONTAINER), ("pressed", ACCENT_HOVER)],
+        )
         style.configure("TLabelframe", background=PANEL, foreground=TEXT)
         style.configure("TLabelframe.Label", background=PANEL, foreground=MUTED)
         style.configure("TNotebook", background=PANEL, borderwidth=0)
@@ -3201,11 +3214,8 @@ class LayoutPage(BasePage):
         self._cursor_available = False
         self._confirmed_cursor_enabled = False
         self._confirmed_debug_overlay: dict[str, Any] = {
-            "enabled": False,
-            "alpha": 176,
-            "scale": 1,
-            "items": ["fps", "dirty", "bytes"],
-            "interval_ms": 1000,
+            **DEFAULT_CH347_DEBUG_OVERLAY,
+            "items": list(DEFAULT_CH347_DEBUG_OVERLAY["items"]),
         }
         debug_card = tk.Frame(
             container,
@@ -3241,7 +3251,9 @@ class LayoutPage(BasePage):
         self.debug_overlay_scale = tk.StringVar(value="1")
         self.debug_overlay_interval = tk.StringVar(value="1000")
         self.debug_overlay_items = {
-            item: tk.BooleanVar(value=item in {"fps", "dirty", "bytes"})
+            item: tk.BooleanVar(
+                value=item in set(DEFAULT_CH347_DEBUG_OVERLAY["items"])
+            )
             for item in CH347_DEBUG_OVERLAY_ITEMS
         }
         self.debug_fps = tk.StringVar()
@@ -3448,6 +3460,7 @@ class LayoutPage(BasePage):
                 text=app.tr(DEBUG_OVERLAY_ITEM_LABEL_KEYS[item]),
                 variable=self.debug_overlay_items[item],
                 state="disabled",
+                style="Accent.TCheckbutton" if item == "cpu" else "TCheckbutton",
             )
             item_control.grid(
                 row=index // 2,
@@ -3690,19 +3703,18 @@ class LayoutPage(BasePage):
         overlay = debug.get("overlay")
         if not isinstance(overlay, dict):
             overlay = {
+                **DEFAULT_CH347_DEBUG_OVERLAY,
                 "available": False,
-                "enabled": False,
-                "alpha": 176,
-                "scale": 1,
-                "items": ["fps", "dirty", "bytes"],
-                "interval_ms": 1000,
+                "items": list(DEFAULT_CH347_DEBUG_OVERLAY["items"]),
             }
         self._overlay_available = overlay.get("available") is True
         self._confirmed_debug_overlay = {
             "enabled": bool(overlay.get("enabled", False)),
             "alpha": int(overlay.get("alpha", 176)),
             "scale": int(overlay.get("scale", 1)),
-            "items": list(overlay.get("items", ["fps", "dirty", "bytes"])),
+            "items": list(
+                overlay.get("items", DEFAULT_CH347_DEBUG_OVERLAY["items"])
+            ),
             "interval_ms": int(overlay.get("interval_ms", 1000)),
         }
         self.debug_overlay_enabled.set(self._confirmed_debug_overlay["enabled"])

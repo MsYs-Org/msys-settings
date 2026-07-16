@@ -25,6 +25,22 @@ class SettingsI18nTests(unittest.TestCase):
         )
         self.assertEqual(catalog.messages["zh"], catalog.messages["zh-CN"])
         self.assertTrue(set(ENGLISH_FALLBACK).issubset(catalog.messages["en-US"]))
+        self.assertEqual(
+            catalog.messages["en-US"]["display.debug_overlay_item_cpu"],
+            "CPU usage",
+        )
+        self.assertEqual(
+            catalog.messages["zh"]["display.debug_overlay_item_cpu"],
+            "CPU 使用率",
+        )
+        self.assertEqual(
+            catalog.messages["zh-CN"]["display.debug_overlay_item_cpu"],
+            "CPU 使用率",
+        )
+        self.assertEqual(
+            ENGLISH_FALLBACK["display.debug_overlay_item_cpu"],
+            "CPU usage",
+        )
 
     def test_environment_locale_and_named_placeholders_are_used(self) -> None:
         i18n = SettingsI18n(environ={"MSYS_LOCALE": "zh_CN.UTF-8"})
@@ -103,6 +119,10 @@ class SettingsI18nTests(unittest.TestCase):
         self.assertTrue(i18n.load_error)
         self.assertEqual(i18n.locale, "en-US")
         self.assertEqual(i18n.text("radio.wifi.title"), "Wi-Fi")
+        self.assertEqual(
+            i18n.text("display.debug_overlay_item_cpu"),
+            "CPU usage",
+        )
         self.assertEqual(
             i18n.text("status.loading_radio", {"radio": "Wi-Fi"}),
             "Loading Wi-Fi settings…",

@@ -1,5 +1,16 @@
 # MSYS Settings
 
+## 0.2.26 CPU display diagnostics
+
+The configurable CH347 on-screen diagnostics now includes a prominent,
+localized CPU-usage item. Its canonical and default persisted item sequence is
+`fps`, `dirty`, `bytes`, `cpu`; optional bounding-box and memory details remain
+available after those items. Settings validates the complete typed overlay,
+canonicalizes selections before sending them to HAL, and accepts success only
+from the provider's returned state. The controls remain inside the shared
+touch-scrollable Display page and retain the two-column compact layout at
+320x480.
+
 ## 0.2.25 live session language
 
 The regional page now commits its language through Core's small

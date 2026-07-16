@@ -43,12 +43,19 @@ CH347_DEBUG_COUNTER_FIELDS = (
     "last_sent_pixels",
     "last_rects",
 )
-CH347_DEBUG_OVERLAY_ITEMS = ("fps", "dirty", "bytes", "bbox", "memory")
+CH347_DEBUG_OVERLAY_ITEMS = (
+    "fps",
+    "dirty",
+    "bytes",
+    "cpu",
+    "bbox",
+    "memory",
+)
 DEFAULT_CH347_DEBUG_OVERLAY: dict[str, Any] = {
     "enabled": False,
     "alpha": 176,
     "scale": 1,
-    "items": ["fps", "dirty", "bytes"],
+    "items": ["fps", "dirty", "bytes", "cpu"],
     "interval_ms": 1000,
 }
 UINT64_MAX = 18_446_744_073_709_551_615
