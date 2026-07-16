@@ -432,7 +432,7 @@ static void software_render_packages(app_t *app)
 
 static void software_update_visible(app_t *app)
 {
-    char summary[256];
+    char summary[352];
     software_package_t *selected = NULL;
     if(app->selected_package >= 0 &&
        (size_t)app->selected_package < app->package_count)
