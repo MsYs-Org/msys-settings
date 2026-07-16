@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "msys_ui/document.h"
 #include "msys_ui/fonts.h"
 #include "msys_ui/runtime.h"
 #include "msys_ui/theme.h"
@@ -39,11 +40,19 @@ typedef struct {
     msys_ui_runtime_t *runtime;
     msys_ui_surface_t *surface;
     msys_ui_theme_t *theme;
+    msys_ui_document_t *document;
     const msys_ui_anim_policy_t *policy;
     panel_t panels[PANEL_COUNT];
     int active_panel;
     lv_obj_t *summary_labels[PANEL_COUNT];
     lv_obj_t *detail_label;
+    lv_obj_t *detail_summary;
+    lv_obj_t *detail_title;
+    lv_obj_t *detail_note;
+    lv_obj_t *home_page;
+    lv_obj_t *detail_page;
+    lv_obj_t *toggle_row;
+    lv_obj_t *calibration_button;
     lv_obj_t *toggle;
     lv_obj_t *toast;
     lv_obj_t *toast_label;
@@ -57,9 +66,13 @@ typedef struct {
     int bridge_output;
     pid_t bridge_pid;
     uint64_t run_until;
+    uint64_t next_ui_check;
+    const char *ui_path;
+    bool watch_ui;
 } app_t;
 
 static volatile sig_atomic_t stopping;
+static app_t *active_app;
 
 static uint64_t now_ms(void)
 {
@@ -137,55 +150,7 @@ static void show_toast(app_t *app, const char *message)
     (void)lv_timer_create(hide_toast_cb, 1800U, app);
 }
 
-static lv_obj_t *text_label(app_t *app, lv_obj_t *parent, const char *text,
-                            uint16_t size, lv_color_t color)
-{
-    lv_obj_t *label = lv_label_create(parent);
-    lv_label_set_text(label, text);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(label, LV_PCT(100));
-    lv_obj_set_style_text_font(label, msys_ui_theme_font(app->theme, size),
-                               LV_PART_MAIN);
-    lv_obj_set_style_text_color(label, color, LV_PART_MAIN);
-    return label;
-}
-
-static void press_event(lv_event_t *event)
-{
-    app_t *app = lv_event_get_user_data(event);
-    lv_event_code_t code = lv_event_get_code(event);
-    lv_obj_t *object = lv_event_get_current_target(event);
-    if(code == LV_EVENT_PRESSED)
-        msys_ui_animate_press(object, app->policy, true);
-    else if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
-        msys_ui_animate_press(object, app->policy, false);
-}
-
 static void update_visible(app_t *app);
-static void build_page(app_t *app);
-
-static void card_event(lv_event_t *event)
-{
-    app_t *app = lv_event_get_user_data(event);
-    intptr_t raw = (intptr_t)lv_obj_get_user_data(lv_event_get_current_target(event));
-    press_event(event);
-    if(lv_event_get_code(event) == LV_EVENT_CLICKED && raw >= 0 && raw < PANEL_COUNT) {
-        app->active_panel = (int)raw;
-        fprintf(stderr, "settings-lvgl: page=%s\n", app->panels[raw].id);
-        build_page(app);
-    }
-}
-
-static void back_event(lv_event_t *event)
-{
-    app_t *app = lv_event_get_user_data(event);
-    press_event(event);
-    if(lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        app->active_panel = -1;
-        fprintf(stderr, "settings-lvgl: page=home\n");
-        build_page(app);
-    }
-}
 
 static void send_bridge(app_t *app, const char *command, const char *name,
                         const char *value)
@@ -210,147 +175,6 @@ static const char *toggle_action(const panel_t *panel)
     return NULL;
 }
 
-static void toggle_event(lv_event_t *event)
-{
-    app_t *app = lv_event_get_user_data(event);
-    panel_t *panel;
-    const char *action;
-    if(lv_event_get_code(event) != LV_EVENT_VALUE_CHANGED || app->applying_snapshot)
-        return;
-    panel = &app->panels[app->active_panel];
-    action = toggle_action(panel);
-    if(action == NULL) return;
-    panel->toggle_value = lv_obj_has_state(app->toggle, LV_STATE_CHECKED);
-    send_bridge(app, "ACTION", action, panel->toggle_value ? "1" : "0");
-    show_toast(app, "正在应用…");
-}
-
-static void refresh_event(lv_event_t *event)
-{
-    app_t *app = lv_event_get_user_data(event);
-    press_event(event);
-    if(lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        send_bridge(app, "REFRESH", app->active_panel >= 0
-                                      ? app->panels[app->active_panel].id : "all", "");
-        show_toast(app, "正在刷新真实状态…");
-    }
-}
-
-static void calibration_event(lv_event_t *event)
-{
-    app_t *app = lv_event_get_user_data(event);
-    press_event(event);
-    if(lv_event_get_code(event) == LV_EVENT_CLICKED) {
-        send_bridge(app, "ACTION", "calibration_start", "1");
-        show_toast(app, "正在启动触摸校准…");
-    }
-}
-
-static lv_obj_t *button_with_text(app_t *app, lv_obj_t *parent,
-                                  const char *text, lv_event_cb_t callback)
-{
-    lv_obj_t *button = lv_button_create(parent);
-    lv_obj_t *label;
-    lv_obj_set_size(button, LV_PCT(100), 44);
-    lv_obj_add_style(button, msys_ui_theme_button(app->theme), LV_PART_MAIN);
-    lv_obj_add_event_cb(button, callback, LV_EVENT_ALL, app);
-    label = lv_label_create(button);
-    lv_label_set_text(label, text);
-    lv_obj_set_style_text_font(label, msys_ui_theme_font(app->theme, 14),
-                               LV_PART_MAIN);
-    lv_obj_center(label);
-    return button;
-}
-
-static void build_header(app_t *app, lv_obj_t *screen)
-{
-    lv_obj_t *header = lv_obj_create(screen);
-    lv_obj_t *title;
-    lv_obj_remove_style_all(header);
-    lv_obj_set_size(header, LV_PCT(100), 42);
-    lv_obj_set_flex_flow(header, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(header, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_column(header, 8, LV_PART_MAIN);
-    if(app->active_panel >= 0) {
-        lv_obj_t *back = lv_button_create(header);
-        lv_obj_t *label;
-        lv_obj_set_size(back, 38, 36);
-        lv_obj_add_style(back, msys_ui_theme_icon_button(app->theme), LV_PART_MAIN);
-        lv_obj_add_event_cb(back, back_event, LV_EVENT_ALL, app);
-        label = lv_label_create(back);
-        lv_label_set_text(label, LV_SYMBOL_LEFT);
-        lv_obj_center(label);
-    }
-    title = lv_label_create(header);
-    lv_label_set_text(title, app->active_panel >= 0
-                                ? app->panels[app->active_panel].title : "设置");
-    lv_obj_set_style_text_font(title, msys_ui_theme_font(app->theme, 16),
-                               LV_PART_MAIN);
-    lv_obj_set_style_text_color(title, lv_color_hex(0xf4f6ff), LV_PART_MAIN);
-    msys_ui_animate_opening(title, app->policy);
-}
-
-static lv_obj_t *build_content(lv_obj_t *screen)
-{
-    lv_obj_t *content = lv_obj_create(screen);
-    lv_obj_remove_style_all(content);
-    lv_obj_set_width(content, LV_PCT(100));
-    lv_obj_set_flex_grow(content, 1);
-    lv_obj_set_scroll_dir(content, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(content, LV_SCROLLBAR_MODE_AUTO);
-    lv_obj_set_style_pad_right(content, 4, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(content, 8, LV_PART_MAIN);
-    return content;
-}
-
-static void build_home(app_t *app, lv_obj_t *content)
-{
-    int index;
-    app->status_label = text_label(app, content, app->status, 12,
-                                   lv_color_hex(0xaeb5cb));
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW_WRAP);
-    lv_obj_set_flex_align(content, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                          LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_width(app->status_label, LV_PCT(100));
-    for(index = 0; index < PANEL_COUNT; index++) {
-        panel_t *panel = &app->panels[index];
-        lv_obj_t *card = lv_obj_create(content);
-        lv_obj_t *top;
-        lv_obj_t *icon;
-        lv_obj_t *title;
-        lv_obj_t *summary;
-        lv_obj_remove_style_all(card);
-        lv_obj_set_size(card, 140, 90);
-        lv_obj_add_style(card, msys_ui_theme_card(app->theme), LV_PART_MAIN);
-        lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_set_user_data(card, (void *)(intptr_t)index);
-        lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
-        lv_obj_set_style_pad_all(card, 10, LV_PART_MAIN);
-        lv_obj_set_style_pad_row(card, 5, LV_PART_MAIN);
-        lv_obj_add_event_cb(card, card_event, LV_EVENT_ALL, app);
-        top = lv_obj_create(card);
-        lv_obj_remove_style_all(top);
-        lv_obj_set_size(top, LV_PCT(100), 24);
-        lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
-        lv_obj_set_style_pad_column(top, 7, LV_PART_MAIN);
-        icon = lv_label_create(top);
-        lv_label_set_text(icon, panel->symbol);
-        lv_obj_set_style_text_font(icon, &lv_font_montserrat_16, LV_PART_MAIN);
-        lv_obj_set_style_text_color(icon, lv_color_hex(0x8797ff), LV_PART_MAIN);
-        title = lv_label_create(top);
-        lv_label_set_text(title, panel->title);
-        lv_obj_set_style_text_font(title, msys_ui_theme_font(app->theme, 14),
-                                   LV_PART_MAIN);
-        lv_obj_set_style_text_color(title, lv_color_hex(0xf2f4ff), LV_PART_MAIN);
-        summary = text_label(app, card, panel->summary, 12,
-                             lv_color_hex(0xb8bfd2));
-        lv_label_set_long_mode(summary, LV_LABEL_LONG_DOT);
-        lv_obj_set_height(summary, 28);
-        app->summary_labels[index] = summary;
-    }
-}
-
 static const char *toggle_label(const panel_t *panel)
 {
     if(strcmp(panel->id, "storage") == 0) return "自动挂载";
@@ -358,91 +182,196 @@ static const char *toggle_label(const panel_t *panel)
     return "启用";
 }
 
-static void build_detail(app_t *app, lv_obj_t *content)
+static lv_obj_t *ui_object(app_t *app, const char *name)
 {
-    panel_t *panel = &app->panels[app->active_panel];
-    lv_obj_t *status_card;
-    lv_obj_t *note;
-    lv_obj_t *summary;
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    note = text_label(app, content, panel->note, 12, lv_color_hex(0xaeb5cb));
-    status_card = lv_obj_create(content);
-    lv_obj_set_size(status_card, LV_PCT(100), LV_SIZE_CONTENT);
-    lv_obj_add_style(status_card, msys_ui_theme_card(app->theme), LV_PART_MAIN);
-    lv_obj_set_flex_flow(status_card, LV_FLEX_FLOW_COLUMN);
-    summary = text_label(app, status_card, panel->summary, 16,
-                         lv_color_hex(0xf2f4ff));
-    (void)summary;
-    app->detail_label = text_label(app, status_card, panel->detail, 14,
-                                   lv_color_hex(0xb8bfd2));
-    if(panel->toggle_available) {
-        lv_obj_t *row = lv_obj_create(content);
-        lv_obj_t *label;
-        lv_obj_remove_style_all(row);
-        lv_obj_set_size(row, LV_PCT(100), 54);
-        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN,
-                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        label = lv_label_create(row);
-        lv_label_set_text(label, toggle_label(panel));
-        lv_obj_set_style_text_font(label, msys_ui_theme_font(app->theme, 14),
-                                   LV_PART_MAIN);
-        app->toggle = lv_switch_create(row);
-        if(panel->toggle_value) lv_obj_add_state(app->toggle, LV_STATE_CHECKED);
-        lv_obj_add_event_cb(app->toggle, toggle_event, LV_EVENT_VALUE_CHANGED, app);
-    }
-    if(app->active_panel == PANEL_CALIBRATION && panel->available)
-        (void)button_with_text(app, content, "开始触摸校准", calibration_event);
-    (void)button_with_text(app, content, "刷新状态", refresh_event);
-    (void)note;
+    return msys_ui_document_find(app->document, name);
 }
 
-static void build_toast(app_t *app, lv_obj_t *screen)
+static void xml_press_event(lv_event_t *event)
 {
-    app->toast = lv_obj_create(screen);
-    lv_obj_add_style(app->toast, msys_ui_theme_toast(app->theme), LV_PART_MAIN);
-    lv_obj_set_size(app->toast, 256, LV_SIZE_CONTENT);
-    lv_obj_align(app->toast, LV_ALIGN_TOP_MID, 0, 4);
-    app->toast_label = text_label(app, app->toast, "", 12, lv_color_hex(0x171a22));
-    lv_obj_center(app->toast_label);
-    lv_obj_set_style_translate_y(app->toast, -48, LV_PART_MAIN);
-    lv_obj_set_style_opa(app->toast, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_event_code_t code;
+    lv_obj_t *object;
+    if(active_app == NULL) return;
+    code = lv_event_get_code(event);
+    object = lv_event_get_current_target(event);
+    if(code == LV_EVENT_PRESSED)
+        msys_ui_animate_press(object, active_app->policy, true);
+    else if(code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST)
+        msys_ui_animate_press(object, active_app->policy, false);
 }
 
-static void build_page(app_t *app)
+static void xml_navigate_event(lv_event_t *event)
 {
-    lv_obj_t *screen = msys_ui_surface_screen(app->surface);
-    lv_obj_t *content;
+    const char *id = lv_event_get_user_data(event);
+    panel_t *panel;
+    if(active_app == NULL || id == NULL) return;
+    panel = panel_by_id(active_app, id);
+    if(panel == NULL) return;
+    active_app->active_panel = (int)(panel - active_app->panels);
+    fprintf(stderr, "settings-lvgl: page=%s\n", panel->id);
+    update_visible(active_app);
+    if(active_app->detail_title != NULL)
+        msys_ui_animate_opening(active_app->detail_title, active_app->policy);
+}
+
+static void xml_back_event(lv_event_t *event)
+{
+    (void)event;
+    if(active_app == NULL) return;
+    active_app->active_panel = -1;
+    fprintf(stderr, "settings-lvgl: page=home\n");
+    update_visible(active_app);
+}
+
+static void xml_toggle_event(lv_event_t *event)
+{
+    panel_t *panel;
+    const char *action;
+    if(active_app == NULL || active_app->active_panel < 0 ||
+       active_app->applying_snapshot) return;
+    panel = &active_app->panels[active_app->active_panel];
+    action = toggle_action(panel);
+    if(action == NULL) return;
+    panel->toggle_value = lv_obj_has_state(active_app->toggle, LV_STATE_CHECKED);
+    send_bridge(active_app, "ACTION", action,
+                panel->toggle_value ? "1" : "0");
+    show_toast(active_app, "正在应用…");
+    (void)event;
+}
+
+static void xml_refresh_event(lv_event_t *event)
+{
+    if(active_app == NULL) return;
+    send_bridge(active_app, "REFRESH",
+                active_app->active_panel >= 0
+                    ? active_app->panels[active_app->active_panel].id : "all",
+                "");
+    show_toast(active_app, "正在刷新真实状态…");
+    (void)event;
+}
+
+static void xml_calibration_event(lv_event_t *event)
+{
+    if(active_app == NULL) return;
+    send_bridge(active_app, "ACTION", "calibration_start", "1");
+    show_toast(active_app, "正在启动触摸校准…");
+    (void)event;
+}
+
+static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
+{
+    app_t *app = user_data;
+    if(scope == NULL || app == NULL || app->theme == NULL) return -1;
+    if(lv_xml_register_font(scope, "msys_12",
+                            msys_ui_theme_font(app->theme, 12)) != LV_RESULT_OK ||
+       lv_xml_register_font(scope, "msys_14",
+                            msys_ui_theme_font(app->theme, 14)) != LV_RESULT_OK ||
+       lv_xml_register_font(scope, "msys_16",
+                            msys_ui_theme_font(app->theme, 16)) != LV_RESULT_OK ||
+       lv_xml_register_font(scope, "msys_20",
+                            msys_ui_theme_font(app->theme, 20)) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "settings_press", xml_press_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "settings_navigate", xml_navigate_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "settings_back", xml_back_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "settings_toggle", xml_toggle_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "settings_refresh", xml_refresh_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "settings_calibration", xml_calibration_event) != LV_RESULT_OK)
+        return -1;
+    return 0;
+}
+
+static void wire_document(app_t *app)
+{
     int index;
-    lv_obj_clean(screen);
-    for(index = 0; index < PANEL_COUNT; index++) app->summary_labels[index] = NULL;
-    app->detail_label = NULL;
-    app->toggle = NULL;
-    app->toast = NULL;
-    app->toast_label = NULL;
-    app->status_label = NULL;
-    lv_obj_set_style_bg_color(screen, lv_color_hex(0x11141d), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(screen, 10, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(screen, 5, LV_PART_MAIN);
-    lv_obj_set_flex_flow(screen, LV_FLEX_FLOW_COLUMN);
-    build_header(app, screen);
-    content = build_content(screen);
-    if(app->active_panel < 0) build_home(app, content);
-    else build_detail(app, content);
-    build_toast(app, screen);
+    app->home_page = ui_object(app, "home_page");
+    app->detail_page = ui_object(app, "detail_page");
+    app->status_label = ui_object(app, "model_status");
+    app->detail_title = ui_object(app, "detail_title");
+    app->detail_note = ui_object(app, "detail_note");
+    app->detail_summary = ui_object(app, "detail_summary");
+    app->detail_label = ui_object(app, "detail_text");
+    app->toggle_row = ui_object(app, "toggle_row");
+    app->toggle = ui_object(app, "panel_toggle");
+    app->calibration_button = ui_object(app, "calibration_button");
+    app->toast = ui_object(app, "toast");
+    app->toast_label = ui_object(app, "toast_text");
+    for(index = 0; index < PANEL_COUNT; index++) {
+        char name[64];
+        lv_obj_t *title;
+        lv_obj_t *icon;
+        (void)snprintf(name, sizeof(name), "summary_%s", app->panels[index].id);
+        app->summary_labels[index] = ui_object(app, name);
+        (void)snprintf(name, sizeof(name), "title_%s", app->panels[index].id);
+        title = ui_object(app, name);
+        set_label_text(title, app->panels[index].title);
+        (void)snprintf(name, sizeof(name), "icon_%s", app->panels[index].id);
+        icon = ui_object(app, name);
+        set_label_text(icon, app->panels[index].symbol);
+        if(icon != NULL)
+            lv_obj_set_style_text_font(icon, &lv_font_montserrat_16, LV_PART_MAIN);
+    }
+    {
+        lv_obj_t *home_content = ui_object(app, "home_content");
+        lv_obj_t *detail_content = ui_object(app, "detail_content");
+        if(home_content != NULL) {
+            lv_obj_set_scroll_dir(home_content, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(home_content, LV_SCROLLBAR_MODE_AUTO);
+        }
+        if(detail_content != NULL) {
+            lv_obj_set_scroll_dir(detail_content, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(detail_content, LV_SCROLLBAR_MODE_AUTO);
+        }
+    }
+    update_visible(app);
+}
+
+static int load_ui_document(app_t *app)
+{
+    msys_ui_document_config_t config = {
+        .max_bytes = 128U * 1024U,
+        .bind = xml_bind,
+        .user_data = app,
+    };
+    int result;
+    app->document = msys_ui_document_create(
+        msys_ui_surface_screen(app->surface), &config);
+    if(app->document == NULL) return MSYS_UI_DOCUMENT_CREATE;
+    result = msys_ui_document_load_file(app->document, app->ui_path);
+    if(result == MSYS_UI_DOCUMENT_OK) wire_document(app);
+    return result;
 }
 
 static void update_visible(app_t *app)
 {
     int index;
+    if(app->home_page != NULL)
+        lv_obj_set_flag(app->home_page, LV_OBJ_FLAG_HIDDEN,
+                        app->active_panel >= 0);
+    if(app->detail_page != NULL)
+        lv_obj_set_flag(app->detail_page, LV_OBJ_FLAG_HIDDEN,
+                        app->active_panel < 0);
     set_label_text(app->status_label, app->status);
     if(app->active_panel < 0) {
         for(index = 0; index < PANEL_COUNT; index++)
             set_label_text(app->summary_labels[index], app->panels[index].summary);
         return;
     }
+    set_label_text(app->detail_title, app->panels[app->active_panel].title);
+    set_label_text(app->detail_note, app->panels[app->active_panel].note);
+    set_label_text(app->detail_summary, app->panels[app->active_panel].summary);
     set_label_text(app->detail_label, app->panels[app->active_panel].detail);
+    {
+        panel_t *panel = &app->panels[app->active_panel];
+        lv_obj_t *label = ui_object(app, "toggle_label");
+        set_label_text(label, toggle_label(panel));
+        if(app->toggle_row != NULL)
+            lv_obj_set_flag(app->toggle_row, LV_OBJ_FLAG_HIDDEN,
+                            !panel->toggle_available);
+        if(app->calibration_button != NULL)
+            lv_obj_set_flag(app->calibration_button, LV_OBJ_FLAG_HIDDEN,
+                            app->active_panel != PANEL_CALIBRATION ||
+                            !panel->available);
+    }
     if(app->toggle != NULL) {
         app->applying_snapshot = true;
         if(app->panels[app->active_panel].toggle_value)
@@ -666,6 +595,18 @@ static int event_loop(app_t *app)
         uint32_t timeout;
         int result;
         if(msys_ui_runtime_pump(app->runtime) <= 0) break;
+        if(app->watch_ui && now_ms() >= app->next_ui_check) {
+            int reload = msys_ui_document_reload_if_changed(app->document);
+            app->next_ui_check = now_ms() + 250U;
+            if(reload == MSYS_UI_DOCUMENT_OK) {
+                wire_document(app);
+                fprintf(stderr, "settings-lvgl: reloaded-ui=%s\n", app->ui_path);
+            }
+            else if(reload != MSYS_UI_DOCUMENT_UNCHANGED) {
+                fprintf(stderr, "settings-lvgl: ui-reload-failed=%d path=%s\n",
+                        reload, app->ui_path);
+            }
+        }
         timeout = msys_ui_runtime_next_deadline_ms(app->runtime);
         if(timeout == LV_NO_TIMER_READY || timeout > 100U) timeout = 100U;
         descriptors[0].fd = msys_ui_runtime_poll_fd(app->runtime);
@@ -688,7 +629,8 @@ static int event_loop(app_t *app)
 static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s [--bridge FILE --python PYTHON] "
-                    "[--snapshot FILE] [--display NAME] [--run-ms N]\n", program);
+                    "[--snapshot FILE] [--ui FILE] [--watch-ui] "
+                    "[--display NAME] [--run-ms N]\n", program);
 }
 
 int main(int argc, char **argv)
@@ -710,15 +652,19 @@ int main(int argc, char **argv)
     memset(&app, 0, sizeof(app));
     app.active_panel = -1;
     app.bridge_output = -1;
+    app.ui_path = "files/share/ui/settings.xml";
     init_panels(&app);
     for(index = 1; index < argc; index++) {
         if(strcmp(argv[index], "--describe") == 0) {
-            puts("{\"frontend\":\"lvgl\",\"model\":\"msys-settings-python-bridge\"}");
+            puts("{\"frontend\":\"lvgl-xml\",\"theme\":\"light\","
+                 "\"model\":\"msys-settings-python-bridge\"}");
             return 0;
         }
         if(strcmp(argv[index], "--bridge") == 0 && index + 1 < argc) bridge = argv[++index];
         else if(strcmp(argv[index], "--python") == 0 && index + 1 < argc) python = argv[++index];
         else if(strcmp(argv[index], "--snapshot") == 0 && index + 1 < argc) snapshot = argv[++index];
+        else if(strcmp(argv[index], "--ui") == 0 && index + 1 < argc) app.ui_path = argv[++index];
+        else if(strcmp(argv[index], "--watch-ui") == 0) app.watch_ui = true;
         else if(strcmp(argv[index], "--display") == 0 && index + 1 < argc) runtime_config.display_name = argv[++index];
         else if(strcmp(argv[index], "--run-ms") == 0 && index + 1 < argc)
             app.run_until = now_ms() + strtoull(argv[++index], NULL, 10);
@@ -746,7 +692,17 @@ int main(int argc, char **argv)
     }
     msys_ui_theme_set_font_provider(app.theme, msys_ui_font_provider,
                                     NULL, "zh-CN");
-    build_page(&app);
+    active_app = &app;
+    result = load_ui_document(&app);
+    if(result != MSYS_UI_DOCUMENT_OK) {
+        fprintf(stderr, "settings-lvgl: ui-load-failed=%d path=%s\n",
+                result, app.ui_path);
+        msys_ui_document_destroy(app.document);
+        msys_ui_theme_destroy(app.theme);
+        msys_ui_dynamic_fonts_shutdown();
+        msys_ui_runtime_destroy(app.runtime);
+        return 1;
+    }
     msys_ui_surface_show(app.surface);
     if(snapshot != NULL) {
         if(load_snapshot(&app, snapshot) != 0) show_toast(&app, "无法读取测试快照");
@@ -760,6 +716,8 @@ int main(int argc, char **argv)
     (void)signal(SIGTERM, signal_handler);
     result = event_loop(&app);
     stop_bridge(&app);
+    active_app = NULL;
+    msys_ui_document_destroy(app.document);
     msys_ui_theme_destroy(app.theme);
     msys_ui_dynamic_fonts_shutdown();
     msys_ui_runtime_destroy(app.runtime);

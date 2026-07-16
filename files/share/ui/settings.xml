@@ -1,0 +1,283 @@
+<component>
+  <view extends="lv_obj" width="100%" height="100%" scrollable="false"
+        style_bg_color="#f4f6fa" style_bg_opa="100%" style_border_width="0"
+        style_radius="0" style_pad_all="8">
+    <lv_obj name="home_page" width="100%" height="100%" flex_flow="column"
+            scrollable="false" style_bg_opa="0%" style_border_width="0"
+            style_radius="0" style_pad_all="0" style_pad_row="6">
+      <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="4" style_flex_cross_place="center">
+        <lv_label text="设置" style_text_font="msys_20"
+                  style_text_color="#182033"/>
+      </lv_obj>
+      <lv_obj name="home_content" width="100%" flex_grow="1"
+              flex_flow="row_wrap" scrollable="true" scroll_momentum="true"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="2" style_pad_right="5" style_pad_row="8"
+              style_pad_column="8" style_flex_main_place="space_between"
+              style_flex_cross_place="start" style_flex_track_place="start">
+        <lv_label name="model_status" text="正在连接 SettingsModel…"
+                  width="100%" height="content" long_mode="wrap"
+                  flex_in_new_track="true" style_text_font="msys_12"
+                  style_text_color="#667085"/>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_wifi" text="W" style_text_color="#356ae6"/>
+            <lv_label name="title_wifi" text="Wi-Fi" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_wifi" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="wifi"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_bluetooth" text="B" style_text_color="#356ae6"/>
+            <lv_label name="title_bluetooth" text="蓝牙" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_bluetooth" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="bluetooth"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_audio" text="A" style_text_color="#356ae6"/>
+            <lv_label name="title_audio" text="音频" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_audio" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="audio"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_display" text="D" style_text_color="#356ae6"/>
+            <lv_label name="title_display" text="显示" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_display" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="display"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_storage" text="S" style_text_color="#356ae6"/>
+            <lv_label name="title_storage" text="存储" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_storage" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="storage"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_regional" text="R" style_text_color="#356ae6"/>
+            <lv_label name="title_regional" text="语言和时间" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_regional" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="regional"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_apps" text="P" style_text_color="#356ae6"/>
+            <lv_label name="title_apps" text="应用" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_apps" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="apps"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_updates" text="U" style_text_color="#356ae6"/>
+            <lv_label name="title_updates" text="更新" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_updates" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="updates"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_calibration" text="T" style_text_color="#356ae6"/>
+            <lv_label name="title_calibration" text="触摸校准" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_calibration" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="calibration"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_system" text="Y" style_text_color="#356ae6"/>
+            <lv_label name="title_system" text="系统" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_system" text="正在读取…" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="system"/>
+        </lv_obj>
+      </lv_obj>
+    </lv_obj>
+
+    <lv_obj name="detail_page" width="100%" height="100%" flex_flow="column"
+            hidden="true" scrollable="false" style_bg_opa="0%"
+            style_border_width="0" style_radius="0" style_pad_all="0"
+            style_pad_row="6">
+      <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_pad_column="8" style_flex_cross_place="center">
+        <lv_button width="38" height="36" style_radius="18"
+                   style_bg_color="#e7edfb" style_bg_opa="100%"
+                   style_border_width="0">
+          <lv_label text="←" align="center" style_text_font="msys_16"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_back"/>
+        </lv_button>
+        <lv_label name="detail_title" text="设置" style_text_font="msys_20"
+                  style_text_color="#182033"/>
+      </lv_obj>
+      <lv_obj name="detail_content" width="100%" flex_grow="1"
+              flex_flow="column" scrollable="true" scroll_momentum="true"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_pad_right="7" style_pad_row="10">
+        <lv_label name="detail_note" text="真实系统状态" width="100%"
+                  height="content" long_mode="wrap" style_text_font="msys_12"
+                  style_text_color="#667085"/>
+        <lv_obj width="100%" height="content" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="14" style_pad_row="8">
+          <lv_label name="detail_summary" text="正在读取…" width="100%"
+                    height="content" long_mode="wrap" style_text_font="msys_16"
+                    style_text_color="#182033"/>
+          <lv_label name="detail_text" text="正在读取真实系统状态…" width="100%"
+                    height="content" long_mode="wrap" style_text_font="msys_14"
+                    style_text_color="#526071" style_text_line_space="3"/>
+        </lv_obj>
+        <lv_obj name="toggle_row" width="100%" height="56" flex_flow="row"
+                hidden="true" scrollable="false" style_bg_color="#ffffff"
+                style_bg_opa="100%" style_radius="14" style_border_width="1"
+                style_border_color="#dfe4ee" style_pad_all="10"
+                style_flex_main_place="space_between" style_flex_cross_place="center">
+          <lv_label name="toggle_label" text="启用" style_text_font="msys_14"
+                    style_text_color="#182033"/>
+          <lv_switch name="panel_toggle" width="52" height="30">
+            <lv_event-call_function trigger="value_changed" callback="settings_toggle"/>
+          </lv_switch>
+        </lv_obj>
+        <lv_button name="calibration_button" width="100%" height="44"
+                   hidden="true" style_radius="14" style_bg_color="#356ae6"
+                   style_bg_opa="100%" style_border_width="0">
+          <lv_label text="开始触摸校准" align="center" style_text_font="msys_14"
+                    style_text_color="#ffffff"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_calibration"/>
+        </lv_button>
+        <lv_button width="100%" height="44" style_radius="14"
+                   style_bg_color="#e7edfb" style_bg_opa="100%"
+                   style_border_width="0">
+          <lv_label text="刷新状态" align="center" style_text_font="msys_14"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_refresh"/>
+        </lv_button>
+      </lv_obj>
+    </lv_obj>
+
+    <lv_obj name="toast" width="256" height="content" align="top_mid"
+            floating="true" ignore_layout="true" scrollable="false"
+            style_bg_color="#202636" style_bg_opa="92%" style_radius="14"
+            style_border_width="0" style_pad_hor="16" style_pad_ver="10"
+            style_translate_y="-48" style_opa="0%">
+      <lv_label name="toast_text" text="" width="100%" height="content"
+                long_mode="wrap" style_text_align="center"
+                style_text_font="msys_12" style_text_color="#ffffff"/>
+    </lv_obj>
+  </view>
+</component>

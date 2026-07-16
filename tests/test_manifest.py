@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import re
 import unittest
+import xml.etree.ElementTree as ET
 
 from msys_settings import __version__
 
@@ -19,7 +20,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.3.3")
+        self.assertEqual(__version__, "0.4.0")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -165,6 +166,20 @@ class ManifestTests(unittest.TestCase):
             "org.msys.settings:main",
         )
         self.assertTrue((ROOT / "files/app/lvgl_bridge.py").is_file())
+        ui_index = native["exec"].index("--ui") + 1
+        self.assertEqual(
+            native["exec"][ui_index],
+            "@package/files/share/ui/settings.xml",
+        )
+        document = ROOT / "files/share/ui/settings.xml"
+        self.assertTrue(document.is_file())
+        root = ET.parse(document).getroot()
+        self.assertEqual(root.tag, "component")
+        names = {node.attrib.get("name") for node in root.iter()}
+        self.assertTrue(
+            {"home_page", "detail_page", "home_content", "detail_content"}
+            <= names
+        )
 
     def test_launcher_icon_is_declared_and_is_a_valid_ppm(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))

@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.3.3",
+    "version": "0.4.0",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -177,6 +177,8 @@
         "@package/files/app/lvgl_bridge.py",
         "--python",
         "@supervisor-python",
+        "--ui",
+        "@package/files/share/ui/settings.xml",
         "--output",
         "spi"
       ],

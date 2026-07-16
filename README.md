@@ -1,5 +1,18 @@
 # MSYS Settings
 
+## 0.4.0 dynamic LVGL Settings
+
+The optional `main-lvgl` frontend now loads its complete light UI from
+`files/share/ui/settings.xml` through the shared `msys-ui-lvgl` document API.
+The XML owns the home cards, secondary-page layout, wrapping, scrolling,
+styles and event declarations. C retains only bounded widget binding and the
+existing Python bridge retains all real Wi-Fi, Bluetooth, audio, storage,
+regional, application and update business operations. `--watch-ui` enables
+developer-only 250 ms file change checks; a parse error keeps the last valid
+object tree. Production has no UI polling and static pages remain zero-flush.
+The Tk component remains the default fallback while the LVGL frontend is
+completed and accepted on hardware.
+
 ## 0.3.3 LVGL frontend preview
 
 Settings now has an optional native LVGL provider at
