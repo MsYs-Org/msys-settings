@@ -24,23 +24,24 @@
       <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
               style_bg_color="#e7edfb" style_bg_opa="100%" style_radius="14"
               style_border_width="0" style_pad_all="4" style_pad_column="4">
-        <lv_button flex_grow="1" height="34" style_radius="11"
-                   style_bg_color="#ffffff" style_bg_opa="100%"
+        <lv_obj flex_grow="1" height="34" clickable="true" scrollable="false"
+                   style_radius="11" style_bg_color="#356ae6" style_bg_opa="100%"
                    style_border_width="0">
           <lv_label text="已安装" align="center" style_text_font="msys_14"
-                    style_text_color="#284caf"/>
+                    style_text_color="#ffffff"/>
           <lv_event-call_function trigger="all" callback="settings_press"/>
           <lv_event-call_function trigger="clicked" callback="software_navigate"
                                   user_data="apps"/>
-        </lv_button>
-        <lv_button flex_grow="1" height="34" style_radius="11"
-                   style_bg_opa="0%" style_border_width="0">
+        </lv_obj>
+        <lv_obj flex_grow="1" height="34" clickable="true" scrollable="false"
+                   style_radius="11" style_bg_color="#ffffff"
+                   style_bg_opa="100%" style_border_width="0">
           <lv_label text="更新与恢复" align="center" style_text_font="msys_14"
                     style_text_color="#526071"/>
           <lv_event-call_function trigger="all" callback="settings_press"/>
           <lv_event-call_function trigger="clicked" callback="software_navigate"
                                   user_data="updates"/>
-        </lv_button>
+        </lv_obj>
       </lv_obj>
       <lv_label name="software_apps_status" text="正在读取已安装软件…"
                 width="100%" height="content" long_mode="wrap"
