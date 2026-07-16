@@ -585,6 +585,8 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
                             msys_ui_theme_font(app->theme, 16)) != LV_RESULT_OK ||
        lv_xml_register_font(scope, "msys_20",
                             msys_ui_theme_font(app->theme, 20)) != LV_RESULT_OK ||
+       lv_xml_register_font(scope, "symbols_16",
+                            &lv_font_montserrat_16) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_press", xml_press_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_navigate", xml_navigate_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_back", xml_back_event) != LV_RESULT_OK ||

@@ -15,7 +15,7 @@
         <lv_button width="42" height="36" style_radius="18"
                    style_bg_color="#e7edfb" style_bg_opa="100%"
                    style_border_width="0">
-          <lv_label text="↻" align="center" style_text_font="msys_16"
+          <lv_label text="&#xF021;" align="center" style_text_font="symbols_16"
                     style_text_color="#284caf"/>
           <lv_event-call_function trigger="all" callback="settings_press"/>
           <lv_event-call_function trigger="clicked" callback="software_refresh"/>
