@@ -20,7 +20,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.4.4")
+        self.assertEqual(__version__, "0.4.5")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -189,6 +189,12 @@ class ManifestTests(unittest.TestCase):
         )
         self.assertEqual(native["runtime"], "native")
         self.assertFalse(native["activation"]["launchable"])
+        self.assertTrue({
+            "mipc.call:role:launcher",
+            "mipc.call:role:window-manager",
+            "mipc.event:subscribe:msys.shell.preferences.changed",
+            "mipc.event:subscribe:msys.layout.changed",
+        }.issubset(set(native["permissions"])))
         self.assertEqual(
             native["x-msys-ui-provider"]["fallback_component"],
             "org.msys.settings:main",
@@ -205,9 +211,22 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(root.tag, "component")
         names = {node.attrib.get("name") for node in root.iter()}
         self.assertTrue(
-            {"home_page", "detail_page", "home_content", "detail_content"}
+            {
+                "home_page", "detail_page", "home_content", "detail_content",
+                "appearance_page", "appearance_content",
+                "navigation_buttons", "navigation_pill",
+                "wallpaper_color_input", "wallpaper_path_input",
+                "animations_switch", "reduce_motion_switch",
+            }
             <= names
         )
+        bridge_source = (ROOT / "files/app/lvgl_bridge.py").read_text(encoding="utf-8")
+        appearance_actions = bridge_source.split(
+            'if name == "appearance_wallpaper":', 1
+        )[1].split('if name == "software_page":', 1)[0]
+        self.assertNotIn("restart", appearance_actions.lower())
+        self.assertNotIn("x11display", appearance_actions.lower())
+        self.assertNotIn("ch347", appearance_actions.lower())
 
     def test_launcher_icon_is_declared_and_is_a_valid_ppm(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))

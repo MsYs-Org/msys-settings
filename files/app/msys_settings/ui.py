@@ -94,6 +94,7 @@ DESKTOP_LAYOUT_LABEL_KEYS = {
     "mobile": "appearance.layout_mobile",
     "desktop": "appearance.layout_desktop",
     "kiosk": "appearance.layout_kiosk",
+    "embedded": "appearance.layout_embedded",
 }
 DESKTOP_SORT_LABEL_KEYS = {
     "name": "appearance.sort_name",

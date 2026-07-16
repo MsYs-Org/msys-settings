@@ -51,7 +51,7 @@ typedef struct {
     char navigation_mode[16];
     char orientation[16];
     char wallpaper_color[16];
-    char wallpaper_path[320];
+    char wallpaper_path[1024];
     int icon_size;
     int icon_spacing;
     int grid_columns;
@@ -476,7 +476,7 @@ static void appearance_apply_wallpaper_event(lv_event_t *event)
 {
     const char *color;
     const char *path;
-    char request[352];
+    char request[1040];
     (void)event;
     if(active_app == NULL || active_app->appearance_wallpaper_color == NULL ||
        active_app->appearance_wallpaper_path == NULL) return;

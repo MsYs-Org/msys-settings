@@ -615,6 +615,7 @@ ENGLISH_FALLBACK.update(
         "appearance.grid_rows": "Grid rows (0 = auto)",
         "appearance.acrylic": "Use lightweight acrylic surfaces",
         "appearance.navigation_mode": "Navigation style",
+        "appearance.layout_embedded": "Embedded panel",
         "appearance.navigation_buttons": "Back / Home / Recent buttons",
         "appearance.navigation_pill": "Gesture pill",
         "appearance.icon_spacing": "Icon spacing",

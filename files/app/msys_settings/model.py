@@ -21,7 +21,7 @@ from .ipc import MipcRemoteError
 
 LAYOUT_PROFILES = ("mobile", "kiosk", "desktop")
 ORIENTATIONS = ("auto", "portrait", "landscape")
-DESKTOP_LAYOUTS = ("profile", "auto", "mobile", "desktop", "kiosk")
+DESKTOP_LAYOUTS = ("profile", "auto", "mobile", "desktop", "kiosk", "embedded")
 DESKTOP_SORTS = ("name", "component")
 NAVIGATION_MODES = ("buttons", "pill")
 PACKAGE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+$")
@@ -1788,14 +1788,19 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(show_labels, bool):
         raise ValueError("Show labels must be true or false")
     wallpaper_path = payload.get("wallpaper_path", "")
-    if (
-        not isinstance(wallpaper_path, str)
-        or (
-            wallpaper_path
-            and (not wallpaper_path.startswith("/") or not wallpaper_path.lower().endswith(".ppm"))
+    if not isinstance(wallpaper_path, str):
+        raise ValueError("Wallpaper path must be an absolute safe path or empty")
+    if wallpaper_path and (
+        not wallpaper_path.startswith("/")
+        or len(wallpaper_path.encode("utf-8")) >= 1024
+        or any(
+            ord(character) < 0x20
+            or ord(character) == 0x7F
+            or character in {'"', "\\"}
+            for character in wallpaper_path
         )
     ):
-        raise ValueError("Wallpaper path must be an absolute PPM path or empty")
+        raise ValueError("Wallpaper path must be an absolute safe path or empty")
 
     def grid_amount(field: str, maximum: int, default: int = 0) -> int:
         raw = payload.get(field, default)

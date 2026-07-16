@@ -1008,6 +1008,30 @@ class NormalizationTests(unittest.TestCase):
             "profile",
         )
         self.assertEqual(
+            validate_desktop_preferences({
+                **preferences,
+                "layout": "embedded",
+                "wallpaper_path": "/media/msys/亮色壁纸",
+                "navigation_mode": "buttons",
+                "icon_spacing": "24",
+                "folders_enabled": False,
+                "large_folders_enabled": False,
+                "animations_enabled": False,
+                "reduce_motion": True,
+            }),
+            {
+                **preferences,
+                "layout": "embedded",
+                "wallpaper_path": "/media/msys/亮色壁纸",
+                "navigation_mode": "buttons",
+                "icon_spacing": 24,
+                "folders_enabled": False,
+                "large_folders_enabled": False,
+                "animations_enabled": False,
+                "reduce_motion": True,
+            },
+        )
+        self.assertEqual(
             normalise_desktop_preferences({"preferences": preferences, "revision": 9})["revision"],
             9,
         )
@@ -1020,6 +1044,19 @@ class NormalizationTests(unittest.TestCase):
             validate_desktop_preferences({**preferences, "navigation_mode": "keys"})
         with self.assertRaises(ValueError):
             validate_desktop_preferences({**preferences, "icon_spacing": 49})
+        for invalid_path in (
+            "relative/wallpaper.ppm",
+            "/media/bad\\name.ppm",
+            '/media/bad"name.ppm',
+            "/media/bad\nname.ppm",
+            "/" + "界" * 342,
+        ):
+            with self.subTest(invalid_path=invalid_path[:40]):
+                with self.assertRaisesRegex(ValueError, "absolute safe path"):
+                    validate_desktop_preferences({
+                        **preferences,
+                        "wallpaper_path": invalid_path,
+                    })
         with self.assertRaisesRegex(ValueError, "unsupported preferences schema"):
             normalise_desktop_preferences({
                 "schema": "msys.shell-preferences.v2",
