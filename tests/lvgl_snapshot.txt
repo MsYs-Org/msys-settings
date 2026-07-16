@@ -1,0 +1,24 @@
+BEGIN	1
+status	已连接测试 SettingsModel
+wifi.summary	MEILIN · -48 dBm
+wifi.detail	设备：wlan0%0A网络：MEILIN%0A信号：-48 dBm
+wifi.toggle.available	1
+wifi.toggle.value	1
+bluetooth.summary	已开启
+bluetooth.detail	控制器：hci0%0A后端：private-bluez
+audio.summary	蓝牙耳机 · 62%
+audio.detail	后端：bluealsa%0A输出：蓝牙耳机%0A音量：62
+display.summary	mobile · portrait
+display.detail	布局：mobile%0A方向：portrait
+storage.summary	1/2 已挂载
+storage.detail	U盘：/media/msys/usb%0ATF卡：未挂载
+storage.toggle.available	1
+storage.toggle.value	1
+regional.summary	zh-CN · Asia/Shanghai
+apps.summary	12 个已安装包
+updates.summary	签名更新与回退
+calibration.summary	触摸校准可用
+calibration.available	1
+system.summary	MSYS Settings 0.3.0
+END	1
+

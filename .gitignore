@@ -1,7 +1,9 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+build/
+files/bin/msys-settings-lvgl
+files/share/licenses/lvgl/
+files/share/licenses/msys-ui-lvgl/
 .coverage
 dist/
-build/
-

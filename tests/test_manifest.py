@@ -19,7 +19,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.2.27")
+        self.assertEqual(__version__, "0.3.0")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -130,7 +130,10 @@ class ManifestTests(unittest.TestCase):
         entry = component["exec"][1].removeprefix("@package/")
         self.assertTrue((ROOT / entry).is_file())
 
-        software = manifest["components"][1]
+        software = next(
+            item for item in manifest["components"]
+            if item["id"] == "software-center"
+        )
         self.assertEqual(software["id"], "software-center")
         self.assertEqual(
             software["windowing"]["identity"],
@@ -150,6 +153,18 @@ class ManifestTests(unittest.TestCase):
             },
             {"apps", "updates", "details", "uninstall"},
         )
+
+        native = next(
+            item for item in manifest["components"]
+            if item["id"] == "main-lvgl"
+        )
+        self.assertEqual(native["runtime"], "native")
+        self.assertFalse(native["activation"]["launchable"])
+        self.assertEqual(
+            native["x-msys-ui-provider"]["fallback_component"],
+            "org.msys.settings:main",
+        )
+        self.assertTrue((ROOT / "files/app/lvgl_bridge.py").is_file())
 
     def test_launcher_icon_is_declared_and_is_a_valid_ppm(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))

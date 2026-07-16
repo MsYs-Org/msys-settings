@@ -1,5 +1,44 @@
 # MSYS Settings
 
+## 0.3.0 LVGL frontend preview
+
+Settings now has an optional native LVGL provider at
+`org.msys.settings:main-lvgl`. The existing Tk component
+`org.msys.settings:main` remains the launchable default and explicit fallback;
+there is no flag day or forced shell migration. A profile or developer can
+start the LVGL component directly, then switch back to `:main` without changing
+the business contracts.
+
+The native renderer is intentionally only a frontend. Its small Python bridge
+imports the existing `SettingsModel`, `SettingsClient`, mIPC transport, radio
+normalizers and regional store. It sends bounded presentation fields over two
+anonymous pipes, so Wi-Fi, Bluetooth, audio, display, storage, installed-app
+and regional summaries are real model results rather than invented demo state.
+Writable Wi-Fi/Bluetooth power, storage auto-mount, audio mute and touch
+calibration actions also return through the same model methods.
+The native host resolves `/proc/$PPID/exe` before forking the bridge, so the
+bridge uses the exact isolated Python that is already running Core; it never
+falls back to a target package manager or assumes `/usr/bin/python3` exists.
+
+The 320x396 UI uses two-column phone/Win11-style cards, wrapped secondary-page
+text, direct vertical dragging and automatic scrollbars. Animation is limited
+to compact title entry, card/button press, switches and a small toast. Static
+pages have no timer-driven redraw and the frontend adds no dirty threshold or
+full-screen damage aggregation.
+
+Build and probe only the native provider with:
+
+```sh
+make -j2
+make probe
+```
+
+The build statically links the sibling `msys-ui-lvgl` runtime and two bundled
+Source Han Sans SC bitmap sizes; the installed provider has no runtime LVGL
+shared-library or font-daemon dependency. The Xvfb probe opens a real
+secondary page and performs a touch drag. Missing optional Xvfb tools return
+77 rather than installing packages.
+
 ## 0.2.27 software center, removable storage, and calibration entry
 
 The package now exposes `org.msys.settings:software-center` as a separately
