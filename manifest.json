@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -229,10 +229,19 @@
     {
       "id": "software-center",
       "name": "Software Center",
-      "runtime": "tk",
+      "runtime": "native",
       "exec": [
-        "python",
-        "@package/files/app/main.py"
+        "@package/files/bin/msys-settings-lvgl",
+        "--mode",
+        "software-center",
+        "--bridge",
+        "@package/files/app/lvgl_bridge.py",
+        "--python",
+        "@supervisor-python",
+        "--ui",
+        "@package/files/share/ui/software-center.xml",
+        "--output",
+        "spi"
       ],
       "lifecycle": "manual",
       "restart": "never",
@@ -242,7 +251,7 @@
       },
       "readiness": {
         "mode": "mipc-ready",
-        "timeout_ms": 8000
+        "timeout_ms": 12000
       },
       "provides": [
         {
@@ -311,7 +320,62 @@
           "mime": "image/x-portable-pixmap",
           "path": "files/share/icons/settings.ppm"
         }
-      ]
+      ],
+      "x-msys-ui-provider": {
+        "id": "lvgl",
+        "default": true,
+        "fallback_component": "org.msys.settings:software-center-tk"
+      }
+    },
+    {
+      "id": "software-center-tk",
+      "name": "Software Center (Tk fallback)",
+      "runtime": "tk",
+      "exec": [
+        "python",
+        "@package/files/app/main.py"
+      ],
+      "lifecycle": "manual",
+      "restart": "never",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "MSYS_SETTINGS_MODE": "software-center"
+      },
+      "readiness": {
+        "mode": "mipc-ready",
+        "timeout_ms": 8000
+      },
+      "permissions": [
+        "display:x11",
+        "mipc.call:msys.core",
+        "mipc.call:role:update-agent",
+        "mipc.call:role:install-agent",
+        "mipc.event:subscribe:msys.activation",
+        "mipc.event:subscribe:msys.update.checked",
+        "mipc.event:subscribe:msys.update.applied",
+        "mipc.event:subscribe:msys.update.error",
+        "mipc.event:subscribe:msys.install.package_changed",
+        "mipc.event:subscribe:msys.install.error"
+      ],
+      "isolation": "baseline",
+      "windowing": {
+        "system": "x11",
+        "display": "inherit",
+        "mode": "window",
+        "title": "MSYS Software Center",
+        "identity": {
+          "app_id": "org.msys.software-center",
+          "x11_wm_class": "org.msys.software-center",
+          "x11_wm_instance": "software-center-tk"
+        }
+      },
+      "activation": {
+        "launchable": false
+      },
+      "x-msys-ui-provider": {
+        "id": "tk",
+        "fallback_for": "org.msys.settings:software-center"
+      }
     }
   ]
 }

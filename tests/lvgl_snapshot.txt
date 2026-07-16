@@ -19,5 +19,5 @@ apps.summary	12 个已安装包
 updates.summary	签名更新与回退
 calibration.summary	触摸校准可用
 calibration.available	1
-system.summary	MSYS Settings 0.4.0
+system.summary	MSYS Settings 0.4.1
 END	1

@@ -1,0 +1,17 @@
+BEGIN	1
+software.source	/opt/msys-state/update-index.json
+software.available	1
+software.status	3 个已安装软件包
+software.operation	上次检查：没有可用更新
+software.busy	0
+software.package_count	3
+software.package.0.id	org.msys.calculator
+software.package.0.version	0.2.0
+software.package.0.path	/opt/msys-state/packages/org.msys.calculator/versions/0.2.0
+software.package.1.id	org.msys.file-manager
+software.package.1.version	0.3.0
+software.package.1.path	/opt/msys-state/packages/org.msys.file-manager/versions/0.3.0
+software.package.2.id	org.msys.settings
+software.package.2.version	0.4.1
+software.package.2.path	/opt/msys-state/packages/org.msys.settings/versions/0.4.1
+END	1

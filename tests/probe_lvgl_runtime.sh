@@ -54,4 +54,28 @@ kill -0 "$app_pid"
 
 wait "$app_pid"
 app_pid=
+
+DISPLAY="$display" ./files/bin/msys-settings-lvgl \
+    --mode software-center --ui files/share/ui/software-center.xml \
+    --snapshot tests/lvgl_software_snapshot.txt --run-ms 1200 \
+    >"$tmp/software.stdout.log" 2>"$tmp/software.stderr.log" &
+app_pid=$!
+window=
+attempt=0
+while [ "$attempt" -lt 40 ]; do
+    window=$(DISPLAY="$display" xwininfo -root -tree 2>/dev/null |
+        awk '/MSYS/{print $1; exit}')
+    [ -z "$window" ] || break
+    attempt=$((attempt + 1))
+    sleep 0.05
+done
+[ -n "$window" ] || { echo "settings-lvgl-probe: software center window missing" >&2; exit 1; }
+identity=$(DISPLAY="$display" xprop -id "$window" \
+    _MSYS_APP_ID _MSYS_COMPONENT_ID _MSYS_WINDOW_ROLE)
+printf '%s\n' "$identity" | grep -q 'org.msys.software-center'
+printf '%s\n' "$identity" | grep -q 'org.msys.settings:software-center'
+grep -q 'software-page=apps' "$tmp/software.stderr.log"
+kill -0 "$app_pid"
+wait "$app_pid"
+app_pid=
 echo "settings-lvgl-probe: ok"

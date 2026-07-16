@@ -1,0 +1,238 @@
+<component>
+  <view extends="lv_obj" width="100%" height="100%" scrollable="false"
+        style_bg_color="#f4f6fa" style_bg_opa="100%" style_border_width="0"
+        style_radius="0" style_pad_all="8">
+    <lv_obj name="software_apps_page" width="100%" height="100%"
+            flex_flow="column" scrollable="false" style_bg_opa="0%"
+            style_border_width="0" style_radius="0" style_pad_all="0"
+            style_pad_row="7">
+      <lv_obj width="100%" height="44" flex_flow="row" scrollable="false"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_flex_cross_place="center"
+              style_flex_main_place="space_between">
+        <lv_label text="软件中心" style_text_font="msys_20"
+                  style_text_color="#182033"/>
+        <lv_button width="42" height="36" style_radius="18"
+                   style_bg_color="#e7edfb" style_bg_opa="100%"
+                   style_border_width="0">
+          <lv_label text="↻" align="center" style_text_font="msys_16"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_refresh"/>
+        </lv_button>
+      </lv_obj>
+      <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
+              style_bg_color="#e7edfb" style_bg_opa="100%" style_radius="14"
+              style_border_width="0" style_pad_all="4" style_pad_column="4">
+        <lv_button flex_grow="1" height="34" style_radius="11"
+                   style_bg_color="#ffffff" style_bg_opa="100%"
+                   style_border_width="0">
+          <lv_label text="已安装" align="center" style_text_font="msys_14"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_navigate"
+                                  user_data="apps"/>
+        </lv_button>
+        <lv_button flex_grow="1" height="34" style_radius="11"
+                   style_bg_opa="0%" style_border_width="0">
+          <lv_label text="更新与恢复" align="center" style_text_font="msys_14"
+                    style_text_color="#526071"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_navigate"
+                                  user_data="updates"/>
+        </lv_button>
+      </lv_obj>
+      <lv_label name="software_apps_status" text="正在读取已安装软件…"
+                width="100%" height="content" long_mode="wrap"
+                style_text_font="msys_12" style_text_color="#667085"/>
+      <lv_obj name="software_package_list" width="100%" flex_grow="1"
+              flex_flow="column" scrollable="true" scroll_momentum="true"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="2" style_pad_right="6" style_pad_row="7"/>
+    </lv_obj>
+
+    <lv_obj name="software_updates_page" width="100%" height="100%"
+            flex_flow="column" hidden="true" scrollable="false"
+            style_bg_opa="0%" style_border_width="0" style_radius="0"
+            style_pad_all="0" style_pad_row="7">
+      <lv_obj width="100%" height="44" flex_flow="row" scrollable="false"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_pad_column="8" style_flex_cross_place="center">
+        <lv_button width="38" height="36" style_radius="18"
+                   style_bg_color="#e7edfb" style_bg_opa="100%"
+                   style_border_width="0">
+          <lv_label text="←" align="center" style_text_font="msys_16"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_back"/>
+        </lv_button>
+        <lv_label text="更新与恢复" style_text_font="msys_20"
+                  style_text_color="#182033"/>
+      </lv_obj>
+      <lv_obj name="software_updates_content" width="100%" flex_grow="1"
+              flex_flow="column" scrollable="true" scroll_momentum="true"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_pad_right="7" style_pad_row="9">
+        <lv_label text="更新源" width="100%" height="content" long_mode="wrap"
+                  style_text_font="msys_12" style_text_color="#667085"/>
+        <lv_obj width="100%" height="content" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="15"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="12" style_pad_row="6">
+          <lv_label name="software_source" text="未配置更新源" width="100%"
+                    height="content" long_mode="wrap" style_text_font="msys_14"
+                    style_text_color="#182033"/>
+          <lv_label text="由 MSYS_UPDATE_SOURCE 配置；签名、哈希和健康门仍由现有 Update Agent 校验。"
+                    width="100%" height="content" long_mode="wrap"
+                    style_text_font="msys_12" style_text_color="#667085"
+                    style_text_line_space="2"/>
+        </lv_obj>
+        <lv_obj width="100%" height="content" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="15"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="12" style_pad_row="7">
+          <lv_label text="最近一次操作" width="100%" height="content"
+                    long_mode="wrap" style_text_font="msys_14"
+                    style_text_color="#182033"/>
+          <lv_label name="software_update_status" text="尚未执行更新操作。"
+                    width="100%" height="content" long_mode="wrap"
+                    style_text_font="msys_12" style_text_color="#526071"
+                    style_text_line_space="3"/>
+        </lv_obj>
+        <lv_button name="software_check_button" width="100%" height="44"
+                   style_radius="14" style_bg_color="#e7edfb"
+                   style_bg_opa="100%" style_border_width="0">
+          <lv_label text="检查全部更新" align="center" style_text_font="msys_14"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_check"/>
+        </lv_button>
+        <lv_button name="software_apply_button" width="100%" height="44"
+                   style_radius="14" style_bg_color="#356ae6"
+                   style_bg_opa="100%" style_border_width="0">
+          <lv_label text="应用全部更新" align="center" style_text_font="msys_14"
+                    style_text_color="#ffffff"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_request_confirm"
+                                  user_data="software_apply"/>
+        </lv_button>
+        <lv_label text="应用和回退均等待 typed terminal result；广播回执不会被当作成功。"
+                  width="100%" height="content" long_mode="wrap"
+                  style_text_font="msys_12" style_text_color="#667085"/>
+      </lv_obj>
+    </lv_obj>
+
+    <lv_obj name="software_detail_page" width="100%" height="100%"
+            flex_flow="column" hidden="true" scrollable="false"
+            style_bg_opa="0%" style_border_width="0" style_radius="0"
+            style_pad_all="0" style_pad_row="7">
+      <lv_obj width="100%" height="44" flex_flow="row" scrollable="false"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_pad_column="8" style_flex_cross_place="center">
+        <lv_button width="38" height="36" style_radius="18"
+                   style_bg_color="#e7edfb" style_bg_opa="100%"
+                   style_border_width="0">
+          <lv_label text="←" align="center" style_text_font="msys_16"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_back"/>
+        </lv_button>
+        <lv_label text="软件包详情" style_text_font="msys_20"
+                  style_text_color="#182033"/>
+      </lv_obj>
+      <lv_obj name="software_detail_content" width="100%" flex_grow="1"
+              flex_flow="column" scrollable="true" scroll_momentum="true"
+              style_bg_opa="0%" style_border_width="0" style_radius="0"
+              style_pad_all="3" style_pad_right="7" style_pad_row="9">
+        <lv_obj width="100%" height="content" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="14" style_pad_row="9">
+          <lv_label name="software_detail_id" text="未选择软件包" width="100%"
+                    height="content" long_mode="wrap" style_text_font="msys_16"
+                    style_text_color="#182033"/>
+          <lv_label name="software_detail_version" text="版本：未知" width="100%"
+                    height="content" long_mode="wrap" style_text_font="msys_14"
+                    style_text_color="#526071"/>
+          <lv_label name="software_detail_path" text="安装位置：未提供" width="100%"
+                    height="content" long_mode="wrap" style_text_font="msys_12"
+                    style_text_color="#667085" style_text_line_space="2"/>
+        </lv_obj>
+        <lv_label text="维护操作" width="100%" height="content" long_mode="wrap"
+                  style_text_font="msys_12" style_text_color="#667085"/>
+        <lv_button name="software_rollback_button" width="100%" height="44"
+                   style_radius="14" style_bg_color="#e7edfb"
+                   style_bg_opa="100%" style_border_width="0">
+          <lv_label text="回退到 previous" align="center" style_text_font="msys_14"
+                    style_text_color="#284caf"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_request_confirm"
+                                  user_data="software_rollback"/>
+        </lv_button>
+        <lv_button name="software_uninstall_button" width="100%" height="44"
+                   style_radius="14" style_bg_color="#fff0f0"
+                   style_bg_opa="100%" style_border_width="1"
+                   style_border_color="#efb4b4">
+          <lv_label text="卸载软件包" align="center" style_text_font="msys_14"
+                    style_text_color="#b42318"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="software_request_confirm"
+                                  user_data="software_uninstall"/>
+        </lv_button>
+        <lv_label text="卸载会经过注册表提交和 catalog 健康检查。失败时保留代理返回的错误，不伪造成功。"
+                  width="100%" height="content" long_mode="wrap"
+                  style_text_font="msys_12" style_text_color="#667085"
+                  style_text_line_space="2"/>
+      </lv_obj>
+    </lv_obj>
+
+    <lv_obj name="software_confirm" width="100%" height="100%" hidden="true"
+            floating="true" ignore_layout="true" scrollable="false"
+            flex_flow="column"
+            style_bg_color="#182033" style_bg_opa="42%" style_border_width="0"
+            style_radius="0" style_pad_all="10" style_flex_main_place="center"
+            style_flex_cross_place="center">
+      <lv_obj width="284" height="content" flex_flow="column" scrollable="false"
+              style_bg_color="#ffffff" style_bg_opa="100%" style_radius="18"
+              style_border_width="1" style_border_color="#dfe4ee"
+              style_pad_all="16" style_pad_row="12">
+        <lv_label name="software_confirm_title" text="确认操作" width="100%"
+                  height="content" long_mode="wrap" style_text_font="msys_16"
+                  style_text_color="#182033"/>
+        <lv_label name="software_confirm_text" text="" width="100%"
+                  height="content" long_mode="wrap" style_text_font="msys_12"
+                  style_text_color="#526071" style_text_line_space="3"/>
+        <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
+                style_bg_opa="0%" style_border_width="0" style_radius="0"
+                style_pad_all="0" style_pad_column="8">
+          <lv_button flex_grow="1" height="40" style_radius="13"
+                     style_bg_color="#edf1f7" style_bg_opa="100%"
+                     style_border_width="0">
+            <lv_label text="取消" align="center" style_text_font="msys_14"
+                      style_text_color="#526071"/>
+            <lv_event-call_function trigger="all" callback="settings_press"/>
+            <lv_event-call_function trigger="clicked" callback="software_cancel"/>
+          </lv_button>
+          <lv_button flex_grow="1" height="40" style_radius="13"
+                     style_bg_color="#356ae6" style_bg_opa="100%"
+                     style_border_width="0">
+            <lv_label text="确认" align="center" style_text_font="msys_14"
+                      style_text_color="#ffffff"/>
+            <lv_event-call_function trigger="all" callback="settings_press"/>
+            <lv_event-call_function trigger="clicked" callback="software_confirm"/>
+          </lv_button>
+        </lv_obj>
+      </lv_obj>
+    </lv_obj>
+
+    <lv_obj name="toast" width="256" height="content" align="top_mid"
+            floating="true" ignore_layout="true" scrollable="false"
+            style_bg_color="#202636" style_bg_opa="92%" style_radius="14"
+            style_border_width="0" style_pad_hor="16" style_pad_ver="10"
+            style_translate_y="-48" style_opa="0%">
+      <lv_label name="toast_text" text="" width="100%" height="content"
+                long_mode="wrap" style_text_align="center"
+                style_text_font="msys_12" style_text_color="#ffffff"/>
+    </lv_obj>
+  </view>
+</component>

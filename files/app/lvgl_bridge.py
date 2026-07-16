@@ -9,6 +9,7 @@ the native renderer; all reads and mutations still pass through SettingsModel.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 import os
 import sys
 import threading
@@ -28,9 +29,13 @@ class Bridge:
         self.regional = RegionalSettingsStore()
         self._write_lock = threading.Lock()
         self._collect_lock = threading.Lock()
+        self._operation_lock = threading.Lock()
         self._sequence = 0
         self._radio: dict[str, dict[str, Any]] = {}
         self._audio: dict[str, Any] = {}
+        self.mode = os.environ.get("MSYS_SETTINGS_MODE", "settings")
+        self.update_source = os.environ.get("MSYS_UPDATE_SOURCE", "").strip()
+        self._software_page = "apps"
 
     def emit(self, fields: dict[str, object]) -> None:
         with self._write_lock:
@@ -63,6 +68,9 @@ class Bridge:
                 f"可写入时区：{'是' if regional.get('timezone_writable') else '否'}"
             ),
             "regional.available": "1",
+            "software.source": self.update_source or "未配置更新源",
+            "software.operation": "尚未执行更新操作。",
+            "software.busy": "0",
         }
 
     def collect_hal(self) -> dict[str, object]:
@@ -242,18 +250,100 @@ class Bridge:
                 "apps.detail": self._failure(result),
                 "updates.summary": "更新服务不可用",
                 "updates.detail": self._failure(result),
+                "software.available": "0",
+                "software.status": f"软件管理不可用：{self._failure(result)}",
+                "software.package_count": "0",
             }
         packages = result.data.get("packages", [])
         names = [
-            str(row.get("id") or row.get("package") or "")
+            str(row.get("package") or row.get("id") or "")
             for row in packages[:12] if isinstance(row, dict)
         ]
-        return {
+        fields: dict[str, object] = {
             "apps.summary": f"{len(packages)} 个已安装包",
             "apps.detail": "\n".join(item for item in names if item) or "没有已安装包",
             "updates.summary": "签名更新与回退",
             "updates.detail": "通过现有 Install/Update Agent 检查、安装和回退。",
+            "software.available": "1",
+            "software.status": f"{len(packages)} 个已安装软件包",
+            "software.package_count": str(len(packages)),
         }
+        for index, row in enumerate(packages[:96]):
+            if not isinstance(row, dict):
+                continue
+            prefix = f"software.package.{index}"
+            fields[f"{prefix}.id"] = str(row.get("package") or row.get("id") or "")
+            fields[f"{prefix}.version"] = str(row.get("version") or "")
+            fields[f"{prefix}.path"] = str(row.get("path") or "")
+        return fields
+
+    @staticmethod
+    def _operation_text(action: str, result: OperationResult) -> str:
+        label = {
+            "check": "检查更新",
+            "apply": "应用更新",
+            "rollback": "回退",
+            "uninstall": "卸载",
+        }.get(action, action)
+        state = "成功" if result.ok else "失败"
+        details = result.data if isinstance(result.data, dict) else {"response": result.data}
+        encoded = json.dumps(details, ensure_ascii=False, sort_keys=True, indent=2)
+        if len(encoded) > 2400:
+            encoded = encoded[:2399] + "…"
+        reason = ""
+        if not result.ok:
+            reason = f"\n错误：{result.code or 'UNKNOWN'} · {result.message or '无说明'}"
+        return f"{label}：{state}{reason}\n{encoded}"
+
+    def software_action(self, action: str, package: str) -> None:
+        if not self._operation_lock.acquire(blocking=False):
+            self.emit({"toast": "已有安装或更新操作正在进行"})
+            return
+        try:
+            labels = {
+                "software_check": "正在等待 Update Agent 检查终态…",
+                "software_apply": "正在等待 Update Agent 安装和健康检查终态…",
+                "software_rollback": f"正在回退 {package}…",
+                "software_uninstall": f"正在卸载 {package}…",
+            }
+            success_labels = {
+                "software_check": "更新检查完成",
+                "software_apply": "更新应用完成",
+                "software_rollback": "软件包回退完成",
+                "software_uninstall": "软件包卸载完成",
+            }
+            self.emit({"software.busy": "1", "software.operation": labels[action]})
+            if action == "software_check":
+                result = self.model.request_update("check", self.update_source, package)
+                operation = "check"
+            elif action == "software_apply":
+                result = self.model.request_update("apply", self.update_source, package)
+                operation = "apply"
+            elif action == "software_rollback":
+                result = self.model.request_rollback(package)
+                operation = "rollback"
+            else:
+                result = self.model.request_uninstall(package)
+                operation = "uninstall"
+            self.emit({
+                "software.operation": self._operation_text(operation, result),
+                "software.busy": "0",
+                "toast": (
+                    success_labels[action]
+                    if result.ok
+                    else f"操作失败：{self._failure(result)}"
+                ),
+            })
+            if result.ok and operation in {"apply", "rollback", "uninstall"}:
+                self.emit(self.collect_apps())
+        except Exception as exc:
+            self.emit({
+                "software.busy": "0",
+                "software.operation": f"操作异常：{exc}",
+                "toast": f"操作异常：{exc}",
+            })
+        finally:
+            self._operation_lock.release()
 
     def collect_system(self) -> dict[str, object]:
         calibration = self.model.touch_calibration_status()
@@ -299,6 +389,18 @@ class Bridge:
 
     def action(self, name: str, value: str) -> None:
         result: OperationResult
+        if name == "software_page":
+            if value in {"apps", "updates", "detail"}:
+                self._software_page = value
+            return
+        if name in {
+            "software_check",
+            "software_apply",
+            "software_rollback",
+            "software_uninstall",
+        }:
+            self.software_action(name, value.strip() or "all")
+            return
         if name in {"wifi_toggle", "bluetooth_toggle"}:
             panel = name.removesuffix("_toggle")
             state = self._radio.get(panel, {})
@@ -343,8 +445,67 @@ def main() -> int:
     bridge.emit(bridge.local_fields())
     if channel is not None:
         channel.handshake()
-        channel.start(lambda _event: None)
-    worker = threading.Thread(target=bridge.collect_all, name="settings-lvgl-load", daemon=True)
+        def event_received(event: dict[str, Any]) -> None:
+            topic = str(event.get("topic") or "")
+            payload = event.get("payload", {})
+            if (
+                topic == "msys.activation"
+                and bridge.mode == "software-center"
+                and isinstance(payload, dict)
+            ):
+                panel = str(payload.get("name") or payload.get("panel") or "apps")
+                component = str(
+                    payload.get("component")
+                    or payload.get("selected_component")
+                    or ""
+                )
+                package = component.split(":", 1)[0].strip()
+                fields: dict[str, object] = {
+                    "software.page": (
+                        "updates"
+                        if panel == "updates"
+                        else "detail"
+                        if package and panel in {"details", "uninstall"}
+                        else "apps"
+                    )
+                }
+                bridge._software_page = str(fields["software.page"])
+                if package:
+                    fields["software.select"] = package
+                if panel == "uninstall":
+                    fields["software.intent"] = "uninstall"
+                bridge.emit(fields)
+                return
+            if topic in {
+                "msys.update.checked",
+                "msys.update.applied",
+                "msys.update.error",
+                "msys.install.package_changed",
+                "msys.install.error",
+            }:
+                threading.Thread(
+                    target=lambda: bridge.emit(bridge.collect_apps()),
+                    name="settings-lvgl-package-event",
+                    daemon=True,
+                ).start()
+
+        def call_received(message: dict[str, Any]) -> dict[str, Any]:
+            method = str(message.get("method") or "")
+            if bridge.mode != "software-center" or method != "navigation_back":
+                return {"handled": False, "reason": "method-not-supported"}
+            if bridge._software_page == "apps":
+                return {"handled": False, "page": "apps"}
+            bridge._software_page = "apps"
+            bridge.emit({"software.page": "apps"})
+            return {"handled": True, "page": "apps"}
+
+        channel.start(event_received, call_handler=call_received)
+    initial_collect = (
+        (lambda: bridge.emit(bridge.collect_apps()))
+        if bridge.mode == "software-center"
+        else bridge.collect_all
+    )
+    worker = threading.Thread(target=initial_collect, name="settings-lvgl-load", daemon=True)
     worker.start()
     try:
         for raw in sys.stdin:
@@ -357,7 +518,11 @@ def main() -> int:
                 break
             if command == "REFRESH":
                 threading.Thread(
-                    target=bridge.collect_all,
+                    target=(
+                        (lambda: bridge.emit(bridge.collect_apps()))
+                        if bridge.mode == "software-center"
+                        else bridge.collect_all
+                    ),
                     name="settings-lvgl-refresh",
                     daemon=True,
                 ).start()

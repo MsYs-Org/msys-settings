@@ -1,5 +1,29 @@
 # MSYS Settings
 
+## 0.4.1 dynamic LVGL Software Center
+
+`org.msys.settings:software-center` is now the launchable native C/LVGL
+frontend.  Its complete light layout lives in
+`files/share/ui/software-center.xml`; installed-package cards are generated
+from the validated `msys.installed.v1` registry and remain vertically
+scrollable at 320×396.  Package detail and update/recovery are separate pages,
+and every long source, path, response, and error label uses word wrapping.
+
+Uninstall, package rollback, update check, and update apply still call only
+`SettingsModel`, which in turn uses `role:install-agent` and
+`role:update-agent`.  The native UI displays success only after the typed
+terminal envelope returns.  Uninstall, rollback, and update application have
+an in-process confirmation sheet; neither a broadcast acknowledgement nor a
+locally inferred registry change is treated as success.  The configured
+update source comes from `MSYS_UPDATE_SOURCE` and an empty source disables the
+update actions visibly.
+
+The prior Tk implementation remains available as the non-launchable
+`org.msys.settings:software-center-tk` fallback.  The package remains
+dependency-free with respect to systemd, host D-Bus, and distribution package
+managers.  This change does not modify the display provider or dirty-region
+logic.
+
 ## 0.4.0 dynamic LVGL Settings
 
 The optional `main-lvgl` frontend now loads its complete light UI from

@@ -11,6 +11,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +25,9 @@ enum { PANEL_WIFI, PANEL_BLUETOOTH, PANEL_AUDIO, PANEL_DISPLAY,
        PANEL_STORAGE, PANEL_REGIONAL, PANEL_APPS, PANEL_UPDATES,
        PANEL_CALIBRATION, PANEL_SYSTEM, PANEL_COUNT };
 
+enum { APP_MODE_SETTINGS, APP_MODE_SOFTWARE_CENTER };
+enum { SOFTWARE_MAX_PACKAGES = 96 };
+
 typedef struct {
     const char *id;
     const char *title;
@@ -35,6 +39,12 @@ typedef struct {
     bool toggle_value;
     bool available;
 } panel_t;
+
+typedef struct {
+    char id[160];
+    char version[80];
+    char path[320];
+} software_package_t;
 
 typedef struct {
     msys_ui_runtime_t *runtime;
@@ -69,6 +79,42 @@ typedef struct {
     uint64_t next_ui_check;
     const char *ui_path;
     bool watch_ui;
+    int mode;
+    software_package_t packages[SOFTWARE_MAX_PACKAGES];
+    software_package_t pending_packages[SOFTWARE_MAX_PACKAGES];
+    size_t package_count;
+    size_t package_total;
+    size_t pending_package_count;
+    size_t pending_package_total;
+    bool pending_packages_valid;
+    int selected_package;
+    char selected_package_id[160];
+    bool software_available;
+    bool software_busy;
+    bool packages_changed;
+    char software_status[256];
+    char software_source[512];
+    char software_operation[1024];
+    char software_page[16];
+    char software_intent[24];
+    char pending_action[32];
+    lv_obj_t *software_apps_page;
+    lv_obj_t *software_updates_page;
+    lv_obj_t *software_detail_page;
+    lv_obj_t *software_package_list;
+    lv_obj_t *software_apps_status;
+    lv_obj_t *software_source_label;
+    lv_obj_t *software_update_status;
+    lv_obj_t *software_detail_id;
+    lv_obj_t *software_detail_version;
+    lv_obj_t *software_detail_path;
+    lv_obj_t *software_confirm;
+    lv_obj_t *software_confirm_title;
+    lv_obj_t *software_confirm_text;
+    lv_obj_t *software_check_button;
+    lv_obj_t *software_apply_button;
+    lv_obj_t *software_uninstall_button;
+    lv_obj_t *software_rollback_button;
 } app_t;
 
 static volatile sig_atomic_t stopping;
@@ -91,6 +137,14 @@ static void copy_text(char *target, size_t capacity, const char *value)
 {
     if(capacity == 0U) return;
     (void)snprintf(target, capacity, "%s", value != NULL ? value : "");
+}
+
+static bool replace_text(char *target, size_t capacity, const char *value)
+{
+    const char *next = value != NULL ? value : "";
+    if(strcmp(target, next) == 0) return false;
+    copy_text(target, capacity, next);
+    return true;
 }
 
 static void set_label_text(lv_obj_t *label, const char *value)
@@ -133,6 +187,15 @@ static void init_panels(app_t *app)
         app->panels[index].available = true;
     }
     copy_text(app->status, sizeof(app->status), "正在连接 SettingsModel…");
+    app->software_available = true;
+    app->selected_package = -1;
+    copy_text(app->software_status, sizeof(app->software_status),
+              "正在读取已安装软件…");
+    copy_text(app->software_source, sizeof(app->software_source),
+              "未配置更新源");
+    copy_text(app->software_operation, sizeof(app->software_operation),
+              "尚未执行更新操作。");
+    copy_text(app->software_page, sizeof(app->software_page), "apps");
 }
 
 static void hide_toast_cb(lv_timer_t *timer)
@@ -258,6 +321,258 @@ static void xml_calibration_event(lv_event_t *event)
     (void)event;
 }
 
+static void software_update_visible(app_t *app);
+static void software_show_confirm(app_t *app, const char *action);
+
+static void software_set_disabled(lv_obj_t *object, bool disabled)
+{
+    if(object == NULL) return;
+    if(disabled) lv_obj_add_state(object, LV_STATE_DISABLED);
+    else lv_obj_remove_state(object, LV_STATE_DISABLED);
+}
+
+static void software_show_page(app_t *app, const char *page)
+{
+    bool apps = strcmp(page, "apps") == 0;
+    bool updates = strcmp(page, "updates") == 0;
+    bool detail = strcmp(page, "detail") == 0;
+    if(app->software_apps_page != NULL)
+        lv_obj_set_flag(app->software_apps_page, LV_OBJ_FLAG_HIDDEN, !apps);
+    if(app->software_updates_page != NULL)
+        lv_obj_set_flag(app->software_updates_page, LV_OBJ_FLAG_HIDDEN, !updates);
+    if(app->software_detail_page != NULL)
+        lv_obj_set_flag(app->software_detail_page, LV_OBJ_FLAG_HIDDEN, !detail);
+    fprintf(stderr, "settings-lvgl: software-page=%s\n", page);
+}
+
+static void software_package_event(lv_event_t *event)
+{
+    software_package_t *package = lv_event_get_user_data(event);
+    ptrdiff_t index;
+    if(active_app == NULL || package == NULL) return;
+    index = package - active_app->packages;
+    if(index < 0 || (size_t)index >= active_app->package_count) return;
+    active_app->selected_package = (int)index;
+    copy_text(active_app->selected_package_id,
+              sizeof(active_app->selected_package_id), package->id);
+    software_update_visible(active_app);
+    copy_text(active_app->software_page,
+              sizeof(active_app->software_page), "detail");
+    software_show_page(active_app, "detail");
+    send_bridge(active_app, "ACTION", "software_page", "detail");
+    if(active_app->software_detail_id != NULL)
+        msys_ui_animate_opening(active_app->software_detail_id,
+                                active_app->policy);
+}
+
+static void software_render_packages(app_t *app)
+{
+    size_t index;
+    if(app->software_package_list == NULL || !app->packages_changed) return;
+    lv_obj_clean(app->software_package_list);
+    if(app->package_count == 0U) {
+        lv_obj_t *empty = lv_label_create(app->software_package_list);
+        lv_label_set_text(empty, app->software_available
+                                  ? "没有已安装的软件包。"
+                                  : "Install Agent 当前不可用。");
+        lv_obj_set_width(empty, LV_PCT(100));
+        lv_label_set_long_mode(empty, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_font(empty,
+            msys_ui_theme_font(app->theme, 14), LV_PART_MAIN);
+        lv_obj_set_style_text_color(empty, lv_color_hex(0x667085), LV_PART_MAIN);
+    }
+    for(index = 0U; index < app->package_count; index++) {
+        software_package_t *package = &app->packages[index];
+        lv_obj_t *row = lv_obj_create(app->software_package_list);
+        lv_obj_t *text = lv_obj_create(row);
+        lv_obj_t *name = lv_label_create(text);
+        lv_obj_t *version = lv_label_create(text);
+        lv_obj_t *arrow = lv_label_create(row);
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, 68);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_color(row, lv_color_hex(0xffffff), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(row, lv_color_hex(0xdfe4ee), LV_PART_MAIN);
+        lv_obj_set_style_radius(row, 15, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(row, 10, LV_PART_MAIN);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row, software_package_event, LV_EVENT_CLICKED, package);
+        lv_obj_add_event_cb(row, xml_press_event, LV_EVENT_ALL, NULL);
+
+        lv_obj_set_flex_grow(text, 1);
+        lv_obj_set_height(text, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_bg_opa(text, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(text, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(text, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_row(text, 4, LV_PART_MAIN);
+        lv_label_set_text(name, package->id);
+        lv_obj_set_width(name, LV_PCT(100));
+        lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(name,
+            msys_ui_theme_font(app->theme, 14), LV_PART_MAIN);
+        lv_obj_set_style_text_color(name, lv_color_hex(0x182033), LV_PART_MAIN);
+        lv_label_set_text(version, package->version[0] != '\0'
+                                   ? package->version : "版本未知");
+        lv_obj_set_width(version, LV_PCT(100));
+        lv_label_set_long_mode(version, LV_LABEL_LONG_WRAP);
+        lv_obj_set_style_text_font(version,
+            msys_ui_theme_font(app->theme, 12), LV_PART_MAIN);
+        lv_obj_set_style_text_color(version, lv_color_hex(0x667085), LV_PART_MAIN);
+        lv_label_set_text(arrow, LV_SYMBOL_RIGHT);
+        lv_obj_set_style_text_font(arrow, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(arrow, lv_color_hex(0x356ae6), LV_PART_MAIN);
+    }
+    app->packages_changed = false;
+}
+
+static void software_update_visible(app_t *app)
+{
+    char summary[256];
+    software_package_t *selected = NULL;
+    if(app->selected_package >= 0 &&
+       (size_t)app->selected_package < app->package_count)
+        selected = &app->packages[app->selected_package];
+    set_label_text(app->software_apps_status, app->software_status);
+    set_label_text(app->software_source_label, app->software_source);
+    set_label_text(app->software_update_status, app->software_operation);
+    if(selected != NULL) {
+        set_label_text(app->software_detail_id, selected->id);
+        (void)snprintf(summary, sizeof(summary), "版本：%s",
+                       selected->version[0] != '\0' ? selected->version : "未知");
+        set_label_text(app->software_detail_version, summary);
+        (void)snprintf(summary, sizeof(summary), "安装位置：%s",
+                       selected->path[0] != '\0' ? selected->path : "未提供");
+        set_label_text(app->software_detail_path, summary);
+    }
+    software_set_disabled(app->software_check_button,
+                          app->software_busy || app->software_source[0] == '\0' ||
+                          strcmp(app->software_source, "未配置更新源") == 0);
+    software_set_disabled(app->software_apply_button,
+                          app->software_busy || app->software_source[0] == '\0' ||
+                          strcmp(app->software_source, "未配置更新源") == 0);
+    software_set_disabled(app->software_uninstall_button,
+                          app->software_busy || selected == NULL);
+    software_set_disabled(app->software_rollback_button,
+                          app->software_busy || selected == NULL);
+    software_render_packages(app);
+    software_show_page(app, app->software_page);
+    if(selected != NULL && strcmp(app->software_intent, "uninstall") == 0) {
+        app->software_intent[0] = '\0';
+        software_show_confirm(app, "software_uninstall");
+    }
+}
+
+static void software_navigate_event(lv_event_t *event)
+{
+    const char *page = lv_event_get_user_data(event);
+    if(active_app == NULL || page == NULL) return;
+    copy_text(active_app->software_page,
+              sizeof(active_app->software_page), page);
+    software_show_page(active_app, page);
+    send_bridge(active_app, "ACTION", "software_page", page);
+    (void)event;
+}
+
+static void software_back_event(lv_event_t *event)
+{
+    if(active_app == NULL) return;
+    copy_text(active_app->software_page,
+              sizeof(active_app->software_page), "apps");
+    software_show_page(active_app, "apps");
+    send_bridge(active_app, "ACTION", "software_page", "apps");
+    (void)event;
+}
+
+static void software_refresh_event(lv_event_t *event)
+{
+    if(active_app == NULL || active_app->software_busy) return;
+    send_bridge(active_app, "REFRESH", "software", "");
+    show_toast(active_app, "正在刷新真实软件注册表…");
+    (void)event;
+}
+
+static void software_check_event(lv_event_t *event)
+{
+    if(active_app == NULL || active_app->software_busy) return;
+    send_bridge(active_app, "ACTION", "software_check", "all");
+    show_toast(active_app, "正在等待 Update Agent 检查结果…");
+    (void)event;
+}
+
+static void software_hide_confirm(app_t *app)
+{
+    if(app->software_confirm != NULL)
+        lv_obj_add_flag(app->software_confirm, LV_OBJ_FLAG_HIDDEN);
+    app->pending_action[0] = '\0';
+}
+
+static void software_show_confirm(app_t *app, const char *action)
+{
+    software_package_t *selected = NULL;
+    const char *title;
+    char prompt[640];
+    if(app->software_busy) return;
+    if(app->selected_package >= 0 &&
+       (size_t)app->selected_package < app->package_count)
+        selected = &app->packages[app->selected_package];
+    if(strcmp(action, "software_apply") == 0) {
+        title = "应用签名更新？";
+        (void)snprintf(prompt, sizeof(prompt),
+                       "将从下方更新源应用全部可用更新。操作仍由 Update Agent 校验、安装并执行健康检查。\n\n%s",
+                       app->software_source);
+    }
+    else {
+        if(selected == NULL) return;
+        title = strcmp(action, "software_uninstall") == 0
+                    ? "卸载这个软件包？" : "回退这个软件包？";
+        (void)snprintf(prompt, sizeof(prompt),
+                       "%s\n版本：%s\n\n确认后仍会等待 Install Agent 返回真实终态；失败不会显示为成功。",
+                       selected->id,
+                       selected->version[0] != '\0' ? selected->version : "未知");
+    }
+    copy_text(app->pending_action, sizeof(app->pending_action), action);
+    set_label_text(app->software_confirm_title, title);
+    set_label_text(app->software_confirm_text, prompt);
+    if(app->software_confirm != NULL)
+        lv_obj_remove_flag(app->software_confirm, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void software_request_confirm_event(lv_event_t *event)
+{
+    const char *action = lv_event_get_user_data(event);
+    if(active_app != NULL && action != NULL)
+        software_show_confirm(active_app, action);
+}
+
+static void software_cancel_event(lv_event_t *event)
+{
+    if(active_app != NULL) software_hide_confirm(active_app);
+    (void)event;
+}
+
+static void software_confirm_event(lv_event_t *event)
+{
+    const char *value = "all";
+    char action[sizeof(active_app->pending_action)];
+    if(active_app == NULL || active_app->pending_action[0] == '\0') return;
+    copy_text(action, sizeof(action), active_app->pending_action);
+    if(strcmp(action, "software_apply") != 0) {
+        if(active_app->selected_package < 0 ||
+           (size_t)active_app->selected_package >= active_app->package_count)
+            return;
+        value = active_app->packages[active_app->selected_package].id;
+    }
+    software_hide_confirm(active_app);
+    send_bridge(active_app, "ACTION", action, value);
+    show_toast(active_app, "请求已发送，正在等待代理终态…");
+    (void)event;
+}
+
 static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
 {
     app_t *app = user_data;
@@ -275,7 +590,14 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
        lv_xml_register_event_cb(scope, "settings_back", xml_back_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_toggle", xml_toggle_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_refresh", xml_refresh_event) != LV_RESULT_OK ||
-       lv_xml_register_event_cb(scope, "settings_calibration", xml_calibration_event) != LV_RESULT_OK)
+       lv_xml_register_event_cb(scope, "settings_calibration", xml_calibration_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_navigate", software_navigate_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_back", software_back_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_refresh", software_refresh_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_check", software_check_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_request_confirm", software_request_confirm_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_cancel", software_cancel_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "software_confirm", software_confirm_event) != LV_RESULT_OK)
         return -1;
     return 0;
 }
@@ -283,6 +605,36 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
 static void wire_document(app_t *app)
 {
     int index;
+    if(app->mode == APP_MODE_SOFTWARE_CENTER) {
+        app->software_apps_page = ui_object(app, "software_apps_page");
+        app->software_updates_page = ui_object(app, "software_updates_page");
+        app->software_detail_page = ui_object(app, "software_detail_page");
+        app->software_package_list = ui_object(app, "software_package_list");
+        app->software_apps_status = ui_object(app, "software_apps_status");
+        app->software_source_label = ui_object(app, "software_source");
+        app->software_update_status = ui_object(app, "software_update_status");
+        app->software_detail_id = ui_object(app, "software_detail_id");
+        app->software_detail_version = ui_object(app, "software_detail_version");
+        app->software_detail_path = ui_object(app, "software_detail_path");
+        app->software_confirm = ui_object(app, "software_confirm");
+        app->software_confirm_title = ui_object(app, "software_confirm_title");
+        app->software_confirm_text = ui_object(app, "software_confirm_text");
+        app->software_check_button = ui_object(app, "software_check_button");
+        app->software_apply_button = ui_object(app, "software_apply_button");
+        app->software_uninstall_button = ui_object(app, "software_uninstall_button");
+        app->software_rollback_button = ui_object(app, "software_rollback_button");
+        app->toast = ui_object(app, "toast");
+        app->toast_label = ui_object(app, "toast_text");
+        if(app->software_package_list != NULL) {
+            lv_obj_set_scroll_dir(app->software_package_list, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(app->software_package_list,
+                                      LV_SCROLLBAR_MODE_AUTO);
+        }
+        app->packages_changed = true;
+        software_show_page(app, "apps");
+        software_update_visible(app);
+        return;
+    }
     app->home_page = ui_object(app, "home_page");
     app->detail_page = ui_object(app, "detail_page");
     app->status_label = ui_object(app, "model_status");
@@ -344,6 +696,10 @@ static int load_ui_document(app_t *app)
 static void update_visible(app_t *app)
 {
     int index;
+    if(app->mode == APP_MODE_SOFTWARE_CENTER) {
+        software_update_visible(app);
+        return;
+    }
     if(app->home_page != NULL)
         lv_obj_set_flag(app->home_page, LV_OBJ_FLAG_HIDDEN,
                         app->active_panel >= 0);
@@ -414,11 +770,122 @@ static bool parse_bool(const char *value)
     return strcmp(value, "1") == 0 || strcmp(value, "true") == 0;
 }
 
+static bool apply_software_field(app_t *app, const char *key, const char *value)
+{
+    const char *field;
+    char *end = NULL;
+    unsigned long parsed;
+    size_t index;
+    if(strcmp(key, "software.status") == 0)
+        return replace_text(app->software_status,
+                            sizeof(app->software_status), value);
+    if(strcmp(key, "software.source") == 0)
+        return replace_text(app->software_source,
+                            sizeof(app->software_source), value);
+    if(strcmp(key, "software.operation") == 0)
+        return replace_text(app->software_operation,
+                            sizeof(app->software_operation), value);
+    if(strcmp(key, "software.page") == 0) {
+        if(strcmp(value, "apps") != 0 && strcmp(value, "updates") != 0 &&
+           strcmp(value, "detail") != 0) return false;
+        return replace_text(app->software_page,
+                            sizeof(app->software_page), value);
+    }
+    if(strcmp(key, "software.select") == 0) {
+        size_t selected;
+        bool changed = replace_text(app->selected_package_id,
+                                    sizeof(app->selected_package_id), value);
+        app->selected_package = -1;
+        for(selected = 0U; selected < app->package_count; selected++) {
+            if(strcmp(app->packages[selected].id, value) == 0) {
+                app->selected_package = (int)selected;
+                break;
+            }
+        }
+        return changed;
+    }
+    if(strcmp(key, "software.intent") == 0)
+        return replace_text(app->software_intent,
+                            sizeof(app->software_intent), value);
+    if(strcmp(key, "software.available") == 0) {
+        bool next = parse_bool(value);
+        if(app->software_available == next) return false;
+        app->software_available = next;
+        return true;
+    }
+    if(strcmp(key, "software.busy") == 0) {
+        bool next = parse_bool(value);
+        if(app->software_busy == next) return false;
+        app->software_busy = next;
+        return true;
+    }
+    if(strcmp(key, "software.package_count") == 0) {
+        parsed = strtoul(value, &end, 10);
+        if(end == value || *end != '\0') return false;
+        app->pending_package_total = (size_t)parsed;
+        app->pending_package_count = app->pending_package_total;
+        if(app->pending_package_count > SOFTWARE_MAX_PACKAGES)
+            app->pending_package_count = SOFTWARE_MAX_PACKAGES;
+        memset(app->pending_packages, 0, sizeof(app->pending_packages));
+        app->pending_packages_valid = true;
+        return false;
+    }
+    if(strncmp(key, "software.package.", 17U) != 0 ||
+       !app->pending_packages_valid) return false;
+    parsed = strtoul(key + 17U, &end, 10);
+    if(end == key + 17U || *end != '.' ||
+       parsed >= app->pending_package_count) return false;
+    index = (size_t)parsed;
+    field = end + 1;
+    if(strcmp(field, "id") == 0)
+        copy_text(app->pending_packages[index].id,
+                  sizeof(app->pending_packages[index].id), value);
+    else if(strcmp(field, "version") == 0)
+        copy_text(app->pending_packages[index].version,
+                  sizeof(app->pending_packages[index].version), value);
+    else if(strcmp(field, "path") == 0)
+        copy_text(app->pending_packages[index].path,
+                  sizeof(app->pending_packages[index].path), value);
+    return false;
+}
+
+static void finish_software_packages(app_t *app)
+{
+    size_t index;
+    bool changed;
+    if(!app->pending_packages_valid) return;
+    changed = app->package_count != app->pending_package_count ||
+              app->package_total != app->pending_package_total ||
+              memcmp(app->packages, app->pending_packages,
+                     sizeof(app->packages)) != 0;
+    if(changed) {
+        app->package_count = app->pending_package_count;
+        app->package_total = app->pending_package_total;
+        memcpy(app->packages, app->pending_packages, sizeof(app->packages));
+        app->packages_changed = true;
+        app->selected_package = -1;
+        if(app->selected_package_id[0] != '\0') {
+            for(index = 0U; index < app->package_count; index++) {
+                if(strcmp(app->packages[index].id,
+                          app->selected_package_id) == 0) {
+                    app->selected_package = (int)index;
+                    break;
+                }
+            }
+        }
+    }
+    app->pending_packages_valid = false;
+}
+
 static void apply_field(app_t *app, char *key, char *value)
 {
     char *dot;
     panel_t *panel;
     percent_decode(value);
+    if(strncmp(key, "software.", 9U) == 0) {
+        if(apply_software_field(app, key, value)) app->snapshot_changed = true;
+        return;
+    }
     if(strcmp(key, "status") == 0) {
         if(strcmp(app->status, value) != 0) {
             copy_text(app->status, sizeof(app->status), value);
@@ -455,6 +922,11 @@ static void parse_line(app_t *app, char *line)
         return;
     }
     if(strncmp(line, "END\t", 4U) == 0) {
+        if(app->mode == APP_MODE_SOFTWARE_CENTER && app->pending_packages_valid) {
+            bool was_changed = app->packages_changed;
+            finish_software_packages(app);
+            if(app->packages_changed != was_changed) app->snapshot_changed = true;
+        }
         if(app->snapshot_changed) update_visible(app);
         return;
     }
@@ -630,6 +1102,7 @@ static void usage(const char *program)
 {
     fprintf(stderr, "usage: %s [--bridge FILE --python PYTHON] "
                     "[--snapshot FILE] [--ui FILE] [--watch-ui] "
+                    "[--mode settings|software-center] "
                     "[--display NAME] [--run-ms N]\n", program);
 }
 
@@ -650,6 +1123,7 @@ int main(int argc, char **argv)
     int index;
     int result;
     memset(&app, 0, sizeof(app));
+    app.mode = APP_MODE_SETTINGS;
     app.active_panel = -1;
     app.bridge_output = -1;
     app.ui_path = "files/share/ui/settings.xml";
@@ -657,6 +1131,7 @@ int main(int argc, char **argv)
     for(index = 1; index < argc; index++) {
         if(strcmp(argv[index], "--describe") == 0) {
             puts("{\"frontend\":\"lvgl-xml\",\"theme\":\"light\","
+                 "\"modes\":[\"settings\",\"software-center\"],"
                  "\"model\":\"msys-settings-python-bridge\"}");
             return 0;
         }
@@ -664,6 +1139,15 @@ int main(int argc, char **argv)
         else if(strcmp(argv[index], "--python") == 0 && index + 1 < argc) python = argv[++index];
         else if(strcmp(argv[index], "--snapshot") == 0 && index + 1 < argc) snapshot = argv[++index];
         else if(strcmp(argv[index], "--ui") == 0 && index + 1 < argc) app.ui_path = argv[++index];
+        else if(strcmp(argv[index], "--mode") == 0 && index + 1 < argc) {
+            const char *mode = argv[++index];
+            if(strcmp(mode, "software-center") == 0)
+                app.mode = APP_MODE_SOFTWARE_CENTER;
+            else if(strcmp(mode, "settings") != 0) {
+                usage(argv[0]);
+                return 2;
+            }
+        }
         else if(strcmp(argv[index], "--watch-ui") == 0) app.watch_ui = true;
         else if(strcmp(argv[index], "--display") == 0 && index + 1 < argc) runtime_config.display_name = argv[++index];
         else if(strcmp(argv[index], "--run-ms") == 0 && index + 1 < argc)
@@ -673,6 +1157,12 @@ int main(int argc, char **argv)
                                         ? MSYS_UI_OUTPUT_HDMI : MSYS_UI_OUTPUT_SPI;
         else if(strcmp(argv[index], "--reduced-motion") == 0) runtime_config.reduced_motion = true;
         else { usage(argv[0]); return 2; }
+    }
+    if(app.mode == APP_MODE_SOFTWARE_CENTER) {
+        surface_config.title = "MSYS 软件中心";
+        surface_config.app_id = "org.msys.software-center";
+        surface_config.component_id = "org.msys.settings:software-center";
+        surface_config.wm_instance = "software-center";
     }
     app.runtime = msys_ui_runtime_create(&runtime_config);
     if(app.runtime == NULL) return 1;

@@ -20,7 +20,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.4.0")
+        self.assertEqual(__version__, "0.4.1")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -136,6 +136,7 @@ class ManifestTests(unittest.TestCase):
             if item["id"] == "software-center"
         )
         self.assertEqual(software["id"], "software-center")
+        self.assertEqual(software["runtime"], "native")
         self.assertEqual(
             software["windowing"]["identity"],
             {
@@ -147,6 +148,27 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue(software["activation"]["launchable"])
         self.assertEqual(software["env"]["MSYS_SETTINGS_MODE"], "software-center")
         self.assertEqual(
+            software["x-msys-ui-provider"]["fallback_component"],
+            "org.msys.settings:software-center-tk",
+        )
+        software_ui = software["exec"][software["exec"].index("--ui") + 1]
+        self.assertEqual(
+            software_ui,
+            "@package/files/share/ui/software-center.xml",
+        )
+        software_document = ROOT / "files/share/ui/software-center.xml"
+        software_root = ET.parse(software_document).getroot()
+        software_names = {
+            node.attrib.get("name") for node in software_root.iter()
+        }
+        self.assertTrue({
+            "software_apps_page",
+            "software_updates_page",
+            "software_detail_page",
+            "software_package_list",
+            "software_confirm",
+        } <= software_names)
+        self.assertEqual(
             {
                 item["name"]
                 for item in software["activation"]["intents"]
@@ -154,6 +176,12 @@ class ManifestTests(unittest.TestCase):
             },
             {"apps", "updates", "details", "uninstall"},
         )
+        software_tk = next(
+            item for item in manifest["components"]
+            if item["id"] == "software-center-tk"
+        )
+        self.assertEqual(software_tk["runtime"], "tk")
+        self.assertFalse(software_tk["activation"]["launchable"])
 
         native = next(
             item for item in manifest["components"]
