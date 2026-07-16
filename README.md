@@ -97,6 +97,13 @@ The existing Appearance role contract also exposes `wallpaper_path`,
 pre-scaled PPM assets, and acrylic uses a static pre-blurred surface so the
 Shell never spends CPU or SPI bandwidth on real-time blur.
 
+The light LVGL Appearance page now reads and mutates the same replaceable
+launcher role for `navigation_mode`, `icon_spacing`, folder/large-folder and
+motion preferences.  Logical portrait/landscape policy remains owned by
+`role:window-manager.set_layout`; `kiosk` is presented as the single-app
+layout.  These paths are live updates: Settings never restarts X11 or the SPI
+provider and does not own a shadow preferences file.
+
 Launcher package details use this activation contract:
 
 ```json
@@ -397,8 +404,9 @@ Core role catalog 按 `list_roles` 当前返回的 `role`、`exclusive`、`prefe
 `active`、`active_providers` 与 `candidates` 形状校验，不在界面内硬编码候选应用。
 
 Desktop appearance 只使用 launcher 职位契约，不读取或修改某个 Shell 的私有文件。
-它管理 `layout`、`wallpaper_color`、`accent_color`、`icon_size`、`show_labels` 与
-`sort`，并订阅 `msys.shell.preferences.changed`。因此将 launcher 换成 Qt、Electron
+它管理 `layout`、`wallpaper_color`、`accent_color`、`icon_size`、`icon_spacing`、
+`navigation_mode`、文件夹/大文件夹、动效、`show_labels` 与 `sort`，并订阅
+`msys.shell.preferences.changed`。因此将 launcher 换成 Qt、Electron
 或其他实现后，Settings 页面仍可复用。颜色严格使用 `#RRGGBB`，图标尺寸限制在
 40–96，非法响应会以 `SHELL_BAD_RESPONSE` 显示而不会破坏其他页面。
 `layout=profile` 在界面中表示 “Profile default”，不会把首次启动时的 mobile/desktop

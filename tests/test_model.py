@@ -728,6 +728,20 @@ class SettingsModelTests(unittest.TestCase):
         self.assertEqual(changed.data["preferences"]["wallpaper_path"], "/media/msys/wallpaper.ppm")
         self.assertEqual(changed.data["preferences"]["grid_columns"], 4)
         self.assertTrue(changed.data["preferences"]["acrylic"])
+        self.assertEqual(changed.data["preferences"]["navigation_mode"], "pill")
+        self.assertEqual(changed.data["preferences"]["icon_spacing"], 8)
+        updated = self.model.update_desktop_preferences({
+            "navigation_mode": "buttons",
+            "icon_spacing": "16",
+            "folders_enabled": False,
+            "large_folders_enabled": False,
+            "animations_enabled": False,
+            "reduce_motion": True,
+        })
+        self.assertTrue(updated.ok)
+        self.assertEqual(updated.data["preferences"]["navigation_mode"], "buttons")
+        self.assertEqual(updated.data["preferences"]["icon_spacing"], 16)
+        self.assertTrue(updated.data["preferences"]["reduce_motion"])
         invalid = self.model.set_desktop_preferences(
             "tablet", "red", "#123456", 10, True, "recent"
         )
@@ -983,6 +997,12 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(preferences["wallpaper_color"], "#ABCDEF")
         self.assertEqual(preferences["icon_size"], 80)
         self.assertEqual(preferences["wallpaper_path"], "")
+        self.assertEqual(preferences["navigation_mode"], "pill")
+        self.assertEqual(preferences["icon_spacing"], 8)
+        self.assertTrue(preferences["folders_enabled"])
+        self.assertTrue(preferences["large_folders_enabled"])
+        self.assertTrue(preferences["animations_enabled"])
+        self.assertFalse(preferences["reduce_motion"])
         self.assertEqual(
             validate_desktop_preferences({**preferences, "layout": "profile"})["layout"],
             "profile",
@@ -996,6 +1016,10 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(direct["revision"], 10)
         with self.assertRaises(ValueError):
             validate_desktop_preferences({**preferences, "icon_size": True})
+        with self.assertRaises(ValueError):
+            validate_desktop_preferences({**preferences, "navigation_mode": "keys"})
+        with self.assertRaises(ValueError):
+            validate_desktop_preferences({**preferences, "icon_spacing": 49})
         with self.assertRaisesRegex(ValueError, "unsupported preferences schema"):
             normalise_desktop_preferences({
                 "schema": "msys.shell-preferences.v2",

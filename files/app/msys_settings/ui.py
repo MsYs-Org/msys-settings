@@ -26,6 +26,7 @@ from .model import (
     DISPLAY_MIGRATION_TERMINAL_PHASES,
     DisplayMigrationTracker,
     LAYOUT_PROFILES,
+    NAVIGATION_MODES,
     ORIENTATIONS,
     OperationResult,
     SettingsModel,
@@ -97,6 +98,10 @@ DESKTOP_LAYOUT_LABEL_KEYS = {
 DESKTOP_SORT_LABEL_KEYS = {
     "name": "appearance.sort_name",
     "component": "appearance.sort_component",
+}
+NAVIGATION_MODE_LABEL_KEYS = {
+    "buttons": "appearance.navigation_buttons",
+    "pill": "appearance.navigation_pill",
 }
 
 
@@ -4461,6 +4466,17 @@ class AppearancePage(BasePage):
         self.grid_columns = tk.StringVar(value="0")
         self.grid_rows = tk.StringVar(value="0")
         self.acrylic = tk.BooleanVar(value=False)
+        self._navigation_labels = _localized_choice_labels(
+            app,
+            NAVIGATION_MODES,
+            NAVIGATION_MODE_LABEL_KEYS,
+        )
+        self.navigation_mode = tk.StringVar(value=self._navigation_labels["pill"])
+        self.icon_spacing = tk.StringVar(value="8")
+        self.folders_enabled = tk.BooleanVar(value=True)
+        self.large_folders_enabled = tk.BooleanVar(value=True)
+        self.animations_enabled = tk.BooleanVar(value=True)
+        self.reduce_motion = tk.BooleanVar(value=False)
         self.message = tk.StringVar(value=app.tr("common.not_loaded"))
         self._preview_after: Any = None
         self._preview_signature: tuple[Any, ...] | None = None
@@ -4625,11 +4641,62 @@ class AppearancePage(BasePage):
             3,
             1,
         )
+        self._field(
+            desktop_options,
+            app.tr("appearance.navigation_mode"),
+            ttk.Combobox(
+                desktop_options,
+                textvariable=self.navigation_mode,
+                values=tuple(
+                    self._navigation_labels[value] for value in NAVIGATION_MODES
+                ),
+                state="readonly",
+            ),
+            5,
+            0,
+        )
+        self._field(
+            desktop_options,
+            app.tr("appearance.icon_spacing"),
+            ttk.Spinbox(
+                desktop_options,
+                textvariable=self.icon_spacing,
+                from_=0,
+                to=48,
+                increment=1,
+            ),
+            5,
+            1,
+        )
         ttk.Checkbutton(
             desktop_options,
             text=app.tr("appearance.acrylic"),
             variable=self.acrylic,
-        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        ).grid(row=7, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        for offset, (key, variable) in enumerate((
+            ("appearance.folders_enabled", self.folders_enabled),
+            ("appearance.large_folders_enabled", self.large_folders_enabled),
+            ("appearance.animations_enabled", self.animations_enabled),
+            ("appearance.reduce_motion", self.reduce_motion),
+        )):
+            ttk.Checkbutton(
+                desktop_options,
+                text=app.tr(key),
+                variable=variable,
+            ).grid(
+                row=8 + offset,
+                column=0,
+                columnspan=2,
+                sticky="w",
+                pady=(3, 0),
+            )
+        ttk.Label(
+            desktop_options,
+            text=app.tr("appearance.live_apply_note"),
+            style="Muted.TLabel",
+            justify="left",
+            wraplength=270 if app.compact else 680,
+        ).grid(row=12, column=0, columnspan=2, sticky="ew", pady=(7, 0))
 
         actions = ttk.Frame(container, style="Panel.TFrame")
         actions.pack(fill="x", pady=(7, 4))
@@ -4786,6 +4853,14 @@ class AppearancePage(BasePage):
                 self.grid_columns.get(),
                 self.grid_rows.get(),
                 self.acrylic.get(),
+                _choice_value(
+                    self.navigation_mode.get(), self._navigation_labels
+                ).strip().lower(),
+                self.icon_spacing.get(),
+                self.folders_enabled.get(),
+                self.large_folders_enabled.get(),
+                self.animations_enabled.get(),
+                self.reduce_motion.get(),
             ),
             self._show_result,
         )
@@ -4820,6 +4895,19 @@ class AppearancePage(BasePage):
         self.grid_columns.set(str(preferences.get("grid_columns", 0)))
         self.grid_rows.set(str(preferences.get("grid_rows", 0)))
         self.acrylic.set(bool(preferences.get("acrylic", False)))
+        navigation_mode = str(preferences.get("navigation_mode", "pill"))
+        self.navigation_mode.set(
+            self._navigation_labels.get(navigation_mode, navigation_mode)
+        )
+        self.icon_spacing.set(str(preferences.get("icon_spacing", 8)))
+        self.folders_enabled.set(bool(preferences.get("folders_enabled", True)))
+        self.large_folders_enabled.set(
+            bool(preferences.get("large_folders_enabled", True))
+        )
+        self.animations_enabled.set(
+            bool(preferences.get("animations_enabled", True))
+        )
+        self.reduce_motion.set(bool(preferences.get("reduce_motion", False)))
         sort = str(preferences.get("sort", "name"))
         self.sort.set(self._sort_labels.get(sort, sort))
         self._schedule_preview()

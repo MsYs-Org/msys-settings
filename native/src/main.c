@@ -22,7 +22,7 @@
 #include <unistd.h>
 
 enum { PANEL_WIFI, PANEL_BLUETOOTH, PANEL_AUDIO, PANEL_DISPLAY,
-       PANEL_STORAGE, PANEL_REGIONAL, PANEL_APPS, PANEL_UPDATES,
+       PANEL_APPEARANCE, PANEL_STORAGE, PANEL_REGIONAL, PANEL_APPS, PANEL_UPDATES,
        PANEL_CALIBRATION, PANEL_SYSTEM, PANEL_COUNT };
 
 enum { APP_MODE_SETTINGS, APP_MODE_SOFTWARE_CENTER };
@@ -47,6 +47,25 @@ typedef struct {
 } software_package_t;
 
 typedef struct {
+    char layout[16];
+    char navigation_mode[16];
+    char orientation[16];
+    char wallpaper_color[16];
+    char wallpaper_path[320];
+    int icon_size;
+    int icon_spacing;
+    int grid_columns;
+    int grid_rows;
+    bool show_labels;
+    bool folders_enabled;
+    bool large_folders_enabled;
+    bool acrylic;
+    bool animations_enabled;
+    bool reduce_motion;
+    bool available;
+} desktop_state_t;
+
+typedef struct {
     msys_ui_runtime_t *runtime;
     msys_ui_surface_t *surface;
     msys_ui_theme_t *theme;
@@ -67,6 +86,19 @@ typedef struct {
     lv_obj_t *toast;
     lv_obj_t *toast_label;
     lv_obj_t *status_label;
+    lv_obj_t *appearance_page;
+    lv_obj_t *appearance_status;
+    lv_obj_t *appearance_layout[4];
+    lv_obj_t *appearance_navigation[2];
+    lv_obj_t *appearance_orientation[3];
+    lv_obj_t *appearance_icon_size;
+    lv_obj_t *appearance_icon_spacing;
+    lv_obj_t *appearance_grid_columns;
+    lv_obj_t *appearance_grid_rows;
+    lv_obj_t *appearance_wallpaper_color;
+    lv_obj_t *appearance_wallpaper_path;
+    lv_obj_t *appearance_switches[6];
+    desktop_state_t desktop;
     bool applying_snapshot;
     bool snapshot_changed;
     char status[192];
@@ -170,6 +202,7 @@ static void init_panels(app_t *app)
         {.id="bluetooth", .title="蓝牙", .note="设备、配对与音频", .symbol=LV_SYMBOL_BLUETOOTH},
         {.id="audio", .title="音频", .note="输出、音量与播放器", .symbol=LV_SYMBOL_AUDIO},
         {.id="display", .title="显示", .note="布局、方向与屏幕", .symbol=LV_SYMBOL_IMAGE},
+        {.id="appearance", .title="桌面", .note="Launcher 布局、图标与动效", .symbol=LV_SYMBOL_HOME},
         {.id="storage", .title="存储", .note="U 盘、TF 卡与自动挂载", .symbol=LV_SYMBOL_DRIVE},
         {.id="regional", .title="语言和时间", .note="语言、时区与格式", .symbol=LV_SYMBOL_GPS},
         {.id="apps", .title="应用", .note="已安装软件与卸载", .symbol=LV_SYMBOL_LIST},
@@ -187,6 +220,18 @@ static void init_panels(app_t *app)
         app->panels[index].available = true;
     }
     copy_text(app->status, sizeof(app->status), "正在连接 SettingsModel…");
+    copy_text(app->desktop.layout, sizeof(app->desktop.layout), "profile");
+    copy_text(app->desktop.navigation_mode,
+              sizeof(app->desktop.navigation_mode), "pill");
+    copy_text(app->desktop.orientation, sizeof(app->desktop.orientation), "auto");
+    copy_text(app->desktop.wallpaper_color,
+              sizeof(app->desktop.wallpaper_color), "#F4F6FA");
+    app->desktop.icon_size = 64;
+    app->desktop.icon_spacing = 8;
+    app->desktop.show_labels = true;
+    app->desktop.folders_enabled = true;
+    app->desktop.large_folders_enabled = true;
+    app->desktop.animations_enabled = true;
     app->software_available = true;
     app->selected_package = -1;
     copy_text(app->software_status, sizeof(app->software_status),
@@ -319,6 +364,127 @@ static void xml_calibration_event(lv_event_t *event)
     send_bridge(active_app, "ACTION", "calibration_start", "1");
     show_toast(active_app, "正在启动触摸校准…");
     (void)event;
+}
+
+static void appearance_update_visible(app_t *app);
+
+static void appearance_choice_event(lv_event_t *event)
+{
+    const char *choice = lv_event_get_user_data(event);
+    const char *separator;
+    char field[32];
+    size_t length;
+    if(active_app == NULL || choice == NULL) return;
+    separator = strchr(choice, '=');
+    if(separator == NULL) return;
+    length = (size_t)(separator - choice);
+    if(length == 0U || length >= sizeof(field)) return;
+    memcpy(field, choice, length);
+    field[length] = '\0';
+    if(strcmp(field, "orientation") == 0) {
+        copy_text(active_app->desktop.orientation,
+                  sizeof(active_app->desktop.orientation), separator + 1);
+        send_bridge(active_app, "ACTION", "appearance_orientation", separator + 1);
+    }
+    else if(strcmp(field, "layout") == 0) {
+        copy_text(active_app->desktop.layout,
+                  sizeof(active_app->desktop.layout), separator + 1);
+        send_bridge(active_app, "ACTION", "appearance_set_layout", separator + 1);
+    }
+    else if(strcmp(field, "navigation_mode") == 0) {
+        copy_text(active_app->desktop.navigation_mode,
+                  sizeof(active_app->desktop.navigation_mode), separator + 1);
+        send_bridge(active_app, "ACTION", "appearance_set_navigation_mode", separator + 1);
+    }
+    else return;
+    appearance_update_visible(active_app);
+    show_toast(active_app, "正在实时应用…");
+}
+
+static int clamp_integer(int value, int minimum, int maximum)
+{
+    if(value < minimum) return minimum;
+    if(value > maximum) return maximum;
+    return value;
+}
+
+static void appearance_adjust_event(lv_event_t *event)
+{
+    const char *request = lv_event_get_user_data(event);
+    const char *separator;
+    char field[32];
+    char value[24];
+    int *target = NULL;
+    int minimum = 0;
+    int maximum = 0;
+    int next;
+    size_t length;
+    if(active_app == NULL || request == NULL) return;
+    separator = strchr(request, '=');
+    if(separator == NULL) return;
+    length = (size_t)(separator - request);
+    if(length == 0U || length >= sizeof(field)) return;
+    memcpy(field, request, length);
+    field[length] = '\0';
+    if(strcmp(field, "icon_size") == 0) {
+        target = &active_app->desktop.icon_size; minimum = 40; maximum = 96;
+    }
+    else if(strcmp(field, "icon_spacing") == 0) {
+        target = &active_app->desktop.icon_spacing; maximum = 48;
+    }
+    else if(strcmp(field, "grid_columns") == 0) {
+        target = &active_app->desktop.grid_columns; maximum = 8;
+    }
+    else if(strcmp(field, "grid_rows") == 0) {
+        target = &active_app->desktop.grid_rows; maximum = 6;
+    }
+    else return;
+    next = clamp_integer(*target + atoi(separator + 1), minimum, maximum);
+    if(next == *target) return;
+    *target = next;
+    (void)snprintf(value, sizeof(value), "%d", next);
+    send_bridge(active_app, "ACTION", field, value);
+    appearance_update_visible(active_app);
+}
+
+static void appearance_toggle_event(lv_event_t *event)
+{
+    const char *field = lv_event_get_user_data(event);
+    lv_obj_t *object = lv_event_get_current_target(event);
+    bool selected;
+    if(active_app == NULL || field == NULL || object == NULL ||
+       active_app->applying_snapshot) return;
+    selected = lv_obj_has_state(object, LV_STATE_CHECKED);
+    if(strcmp(field, "show_labels") == 0)
+        active_app->desktop.show_labels = selected;
+    else if(strcmp(field, "folders_enabled") == 0)
+        active_app->desktop.folders_enabled = selected;
+    else if(strcmp(field, "large_folders_enabled") == 0)
+        active_app->desktop.large_folders_enabled = selected;
+    else if(strcmp(field, "acrylic") == 0)
+        active_app->desktop.acrylic = selected;
+    else if(strcmp(field, "animations_enabled") == 0)
+        active_app->desktop.animations_enabled = selected;
+    else if(strcmp(field, "reduce_motion") == 0)
+        active_app->desktop.reduce_motion = selected;
+    else return;
+    send_bridge(active_app, "ACTION", field, selected ? "1" : "0");
+    show_toast(active_app, "正在实时应用…");
+}
+
+static void appearance_apply_wallpaper_event(lv_event_t *event)
+{
+    const char *color;
+    const char *path;
+    char request[352];
+    (void)event;
+    if(active_app == NULL || active_app->appearance_wallpaper_color == NULL ||
+       active_app->appearance_wallpaper_path == NULL) return;
+    color = lv_textarea_get_text(active_app->appearance_wallpaper_color);
+    path = lv_textarea_get_text(active_app->appearance_wallpaper_path);
+    (void)snprintf(request, sizeof(request), "%.7s%s", color, path);
+    send_bridge(active_app, "ACTION", "appearance_wallpaper", request);
+    show_toast(active_app, "正在应用壁纸…");
 }
 
 static void software_update_visible(app_t *app);
@@ -593,6 +759,10 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
        lv_xml_register_event_cb(scope, "settings_toggle", xml_toggle_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_refresh", xml_refresh_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_calibration", xml_calibration_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "appearance_choice", appearance_choice_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "appearance_adjust", appearance_adjust_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "appearance_toggle", appearance_toggle_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "appearance_apply_wallpaper", appearance_apply_wallpaper_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "software_navigate", software_navigate_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "software_back", software_back_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "software_refresh", software_refresh_event) != LV_RESULT_OK ||
@@ -640,6 +810,29 @@ static void wire_document(app_t *app)
     app->home_page = ui_object(app, "home_page");
     app->detail_page = ui_object(app, "detail_page");
     app->status_label = ui_object(app, "model_status");
+    app->appearance_page = ui_object(app, "appearance_page");
+    app->appearance_status = ui_object(app, "appearance_status");
+    app->appearance_layout[0] = ui_object(app, "layout_profile");
+    app->appearance_layout[1] = ui_object(app, "layout_mobile");
+    app->appearance_layout[2] = ui_object(app, "layout_desktop");
+    app->appearance_layout[3] = ui_object(app, "layout_kiosk");
+    app->appearance_navigation[0] = ui_object(app, "navigation_buttons");
+    app->appearance_navigation[1] = ui_object(app, "navigation_pill");
+    app->appearance_orientation[0] = ui_object(app, "orientation_auto");
+    app->appearance_orientation[1] = ui_object(app, "orientation_portrait");
+    app->appearance_orientation[2] = ui_object(app, "orientation_landscape");
+    app->appearance_icon_size = ui_object(app, "icon_size_value");
+    app->appearance_icon_spacing = ui_object(app, "icon_spacing_value");
+    app->appearance_grid_columns = ui_object(app, "grid_columns_value");
+    app->appearance_grid_rows = ui_object(app, "grid_rows_value");
+    app->appearance_wallpaper_color = ui_object(app, "wallpaper_color_input");
+    app->appearance_wallpaper_path = ui_object(app, "wallpaper_path_input");
+    app->appearance_switches[0] = ui_object(app, "show_labels_switch");
+    app->appearance_switches[1] = ui_object(app, "folders_switch");
+    app->appearance_switches[2] = ui_object(app, "large_folders_switch");
+    app->appearance_switches[3] = ui_object(app, "acrylic_switch");
+    app->appearance_switches[4] = ui_object(app, "animations_switch");
+    app->appearance_switches[5] = ui_object(app, "reduce_motion_switch");
     app->detail_title = ui_object(app, "detail_title");
     app->detail_note = ui_object(app, "detail_note");
     app->detail_summary = ui_object(app, "detail_summary");
@@ -667,6 +860,7 @@ static void wire_document(app_t *app)
     {
         lv_obj_t *home_content = ui_object(app, "home_content");
         lv_obj_t *detail_content = ui_object(app, "detail_content");
+        lv_obj_t *appearance_content = ui_object(app, "appearance_content");
         if(home_content != NULL) {
             lv_obj_set_scroll_dir(home_content, LV_DIR_VER);
             lv_obj_set_scrollbar_mode(home_content, LV_SCROLLBAR_MODE_AUTO);
@@ -674,6 +868,11 @@ static void wire_document(app_t *app)
         if(detail_content != NULL) {
             lv_obj_set_scroll_dir(detail_content, LV_DIR_VER);
             lv_obj_set_scrollbar_mode(detail_content, LV_SCROLLBAR_MODE_AUTO);
+        }
+        if(appearance_content != NULL) {
+            lv_obj_set_scroll_dir(appearance_content, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(appearance_content,
+                                      LV_SCROLLBAR_MODE_AUTO);
         }
     }
     update_visible(app);
@@ -695,6 +894,86 @@ static int load_ui_document(app_t *app)
     return result;
 }
 
+static void set_choice_selected(lv_obj_t *object, bool selected)
+{
+    lv_color_t color;
+    if(object == NULL) return;
+    color = lv_color_hex(selected ? 0x356ae6U : 0xeef2f8U);
+    if(!lv_color_eq(lv_obj_get_style_bg_color(object, LV_PART_MAIN), color))
+        lv_obj_set_style_bg_color(object, color, LV_PART_MAIN);
+}
+
+static void set_switch_value(lv_obj_t *object, bool selected)
+{
+    if(object == NULL) return;
+    if(selected && !lv_obj_has_state(object, LV_STATE_CHECKED))
+        lv_obj_add_state(object, LV_STATE_CHECKED);
+    else if(!selected && lv_obj_has_state(object, LV_STATE_CHECKED))
+        lv_obj_remove_state(object, LV_STATE_CHECKED);
+}
+
+static void set_textarea_text(lv_obj_t *object, const char *value)
+{
+    if(object == NULL || value == NULL) return;
+    if(strcmp(lv_textarea_get_text(object), value) != 0)
+        lv_textarea_set_text(object, value);
+}
+
+static void appearance_update_visible(app_t *app)
+{
+    char text[64];
+    const bool switches[6] = {
+        app->desktop.show_labels,
+        app->desktop.folders_enabled,
+        app->desktop.large_folders_enabled,
+        app->desktop.acrylic,
+        app->desktop.animations_enabled,
+        app->desktop.reduce_motion,
+    };
+    size_t index;
+    set_label_text(app->appearance_status,
+        app->desktop.available
+            ? "已连接 Launcher 与 Window Manager；设置实时生效"
+            : "Launcher 或 Window Manager 当前不可用；未伪造本地状态");
+    set_choice_selected(app->appearance_layout[0],
+                        strcmp(app->desktop.layout, "profile") == 0 ||
+                        strcmp(app->desktop.layout, "auto") == 0);
+    set_choice_selected(app->appearance_layout[1],
+                        strcmp(app->desktop.layout, "mobile") == 0);
+    set_choice_selected(app->appearance_layout[2],
+                        strcmp(app->desktop.layout, "desktop") == 0);
+    set_choice_selected(app->appearance_layout[3],
+                        strcmp(app->desktop.layout, "kiosk") == 0);
+    set_choice_selected(app->appearance_navigation[0],
+                        strcmp(app->desktop.navigation_mode, "buttons") == 0);
+    set_choice_selected(app->appearance_navigation[1],
+                        strcmp(app->desktop.navigation_mode, "pill") == 0);
+    set_choice_selected(app->appearance_orientation[0],
+                        strcmp(app->desktop.orientation, "auto") == 0);
+    set_choice_selected(app->appearance_orientation[1],
+                        strcmp(app->desktop.orientation, "portrait") == 0);
+    set_choice_selected(app->appearance_orientation[2],
+                        strcmp(app->desktop.orientation, "landscape") == 0);
+    (void)snprintf(text, sizeof(text), "%d px", app->desktop.icon_size);
+    set_label_text(app->appearance_icon_size, text);
+    (void)snprintf(text, sizeof(text), "%d px", app->desktop.icon_spacing);
+    set_label_text(app->appearance_icon_spacing, text);
+    if(app->desktop.grid_columns == 0) copy_text(text, sizeof(text), "自动");
+    else (void)snprintf(text, sizeof(text), "%d", app->desktop.grid_columns);
+    set_label_text(app->appearance_grid_columns, text);
+    if(app->desktop.grid_rows == 0) copy_text(text, sizeof(text), "自动");
+    else (void)snprintf(text, sizeof(text), "%d", app->desktop.grid_rows);
+    set_label_text(app->appearance_grid_rows, text);
+    set_textarea_text(app->appearance_wallpaper_color,
+                      app->desktop.wallpaper_color);
+    set_textarea_text(app->appearance_wallpaper_path,
+                      app->desktop.wallpaper_path);
+    app->applying_snapshot = true;
+    for(index = 0U; index < 6U; index++)
+        set_switch_value(app->appearance_switches[index], switches[index]);
+    app->applying_snapshot = false;
+}
+
 static void update_visible(app_t *app)
 {
     int index;
@@ -707,11 +986,19 @@ static void update_visible(app_t *app)
                         app->active_panel >= 0);
     if(app->detail_page != NULL)
         lv_obj_set_flag(app->detail_page, LV_OBJ_FLAG_HIDDEN,
-                        app->active_panel < 0);
+                        app->active_panel < 0 ||
+                        app->active_panel == PANEL_APPEARANCE);
+    if(app->appearance_page != NULL)
+        lv_obj_set_flag(app->appearance_page, LV_OBJ_FLAG_HIDDEN,
+                        app->active_panel != PANEL_APPEARANCE);
     set_label_text(app->status_label, app->status);
     if(app->active_panel < 0) {
         for(index = 0; index < PANEL_COUNT; index++)
             set_label_text(app->summary_labels[index], app->panels[index].summary);
+        return;
+    }
+    if(app->active_panel == PANEL_APPEARANCE) {
+        appearance_update_visible(app);
         return;
     }
     set_label_text(app->detail_title, app->panels[app->active_panel].title);
@@ -879,11 +1166,87 @@ static void finish_software_packages(app_t *app)
     app->pending_packages_valid = false;
 }
 
+static bool apply_appearance_field(app_t *app, const char *key,
+                                   const char *value)
+{
+    const char *field;
+    int parsed;
+    if(strcmp(key, "appearance.orientation") == 0)
+        return replace_text(app->desktop.orientation,
+                            sizeof(app->desktop.orientation), value);
+    if(strcmp(key, "appearance.contract.available") == 0) {
+        bool next = parse_bool(value);
+        if(app->desktop.available == next) return false;
+        app->desktop.available = next;
+        return true;
+    }
+    if(strncmp(key, "appearance.preference.", 22U) != 0) return false;
+    field = key + 22U;
+    if(strcmp(field, "layout") == 0)
+        return replace_text(app->desktop.layout,
+                            sizeof(app->desktop.layout), value);
+    if(strcmp(field, "navigation_mode") == 0)
+        return replace_text(app->desktop.navigation_mode,
+                            sizeof(app->desktop.navigation_mode), value);
+    if(strcmp(field, "wallpaper_color") == 0)
+        return replace_text(app->desktop.wallpaper_color,
+                            sizeof(app->desktop.wallpaper_color), value);
+    if(strcmp(field, "wallpaper_path") == 0)
+        return replace_text(app->desktop.wallpaper_path,
+                            sizeof(app->desktop.wallpaper_path), value);
+    if(strcmp(field, "icon_size") == 0) {
+        parsed = atoi(value);
+        if(app->desktop.icon_size == parsed) return false;
+        app->desktop.icon_size = parsed;
+        return true;
+    }
+    if(strcmp(field, "icon_spacing") == 0) {
+        parsed = atoi(value);
+        if(app->desktop.icon_spacing == parsed) return false;
+        app->desktop.icon_spacing = parsed;
+        return true;
+    }
+    if(strcmp(field, "grid_columns") == 0) {
+        parsed = atoi(value);
+        if(app->desktop.grid_columns == parsed) return false;
+        app->desktop.grid_columns = parsed;
+        return true;
+    }
+    if(strcmp(field, "grid_rows") == 0) {
+        parsed = atoi(value);
+        if(app->desktop.grid_rows == parsed) return false;
+        app->desktop.grid_rows = parsed;
+        return true;
+    }
+#define APPLY_DESKTOP_BOOL(NAME, MEMBER) do { \
+        if(strcmp(field, NAME) == 0) { \
+            bool next = parse_bool(value); \
+            if(app->desktop.MEMBER == next) return false; \
+            app->desktop.MEMBER = next; \
+            return true; \
+        } \
+    } while(0)
+    APPLY_DESKTOP_BOOL("show_labels", show_labels);
+    APPLY_DESKTOP_BOOL("folders_enabled", folders_enabled);
+    APPLY_DESKTOP_BOOL("large_folders_enabled", large_folders_enabled);
+    APPLY_DESKTOP_BOOL("acrylic", acrylic);
+    APPLY_DESKTOP_BOOL("animations_enabled", animations_enabled);
+    APPLY_DESKTOP_BOOL("reduce_motion", reduce_motion);
+#undef APPLY_DESKTOP_BOOL
+    return false;
+}
+
 static void apply_field(app_t *app, char *key, char *value)
 {
     char *dot;
     panel_t *panel;
     percent_decode(value);
+    if(strncmp(key, "appearance.preference.", 22U) == 0 ||
+       strcmp(key, "appearance.orientation") == 0 ||
+       strcmp(key, "appearance.contract.available") == 0) {
+        if(apply_appearance_field(app, key, value)) app->snapshot_changed = true;
+        return;
+    }
     if(strncmp(key, "software.", 9U) == 0) {
         if(apply_software_field(app, key, value)) app->snapshot_changed = true;
         return;

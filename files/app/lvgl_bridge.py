@@ -30,6 +30,7 @@ class Bridge:
         self._write_lock = threading.Lock()
         self._collect_lock = threading.Lock()
         self._operation_lock = threading.Lock()
+        self._desktop_lock = threading.Lock()
         self._sequence = 0
         self._radio: dict[str, dict[str, Any]] = {}
         self._audio: dict[str, Any] = {}
@@ -175,18 +176,97 @@ class Bridge:
 
     def collect_layout(self) -> dict[str, object]:
         result = self.model.get_layout()
+        fields: dict[str, object] = {}
         if not result.ok:
-            return {
+            fields.update({
                 "display.summary": "不可用",
                 "display.detail": self._failure(result),
-            }
-        data = result.data
-        profile = str(data.get("profile") or "unknown")
-        orientation = str(data.get("orientation") or "unknown")
-        return {
-            "display.summary": f"{profile} · {orientation}",
-            "display.detail": f"布局：{profile}\n方向：{orientation}",
-        }
+                "appearance.orientation": "auto",
+            })
+        else:
+            data = result.data
+            effective = data.get("effective", data)
+            if not isinstance(effective, dict):
+                effective = {}
+            profile = str(effective.get("profile") or "unknown")
+            orientation = str(
+                effective.get("orientation_policy")
+                or effective.get("orientation")
+                or "auto"
+            )
+            fields.update({
+                "display.summary": f"{profile} · {orientation}",
+                "display.detail": f"布局：{profile}\n方向：{orientation}",
+                "appearance.orientation": orientation,
+            })
+        preferences = self.model.desktop_preferences()
+        if not preferences.ok:
+            fields.update({
+                "appearance.summary": "Launcher 设置不可用",
+                "appearance.detail": self._failure(preferences),
+                "appearance.contract.available": "0",
+            })
+            return fields
+        values = preferences.data.get("preferences", {})
+        if not isinstance(values, dict):
+            fields.update({
+                "appearance.summary": "Launcher 返回无效状态",
+                "appearance.detail": "preferences 不是对象",
+                "appearance.contract.available": "0",
+            })
+            return fields
+        fields["appearance.contract.available"] = "1"
+        for key, value in values.items():
+            fields[f"appearance.preference.{key}"] = (
+                "1" if value is True else "0" if value is False else value
+            )
+        fields["appearance.summary"] = (
+            f"{values.get('layout', 'profile')} · "
+            f"{values.get('navigation_mode', 'pill')} · "
+            f"{values.get('grid_columns', 0)}×{values.get('grid_rows', 0)}"
+        )
+        fields["appearance.detail"] = (
+            f"图标：{values.get('icon_size', 64)} px · "
+            f"间距：{values.get('icon_spacing', 8)} px\n"
+            f"壁纸：{values.get('wallpaper_path') or values.get('wallpaper_color', '#F4F6FA')}\n"
+            "由 Launcher 角色实时应用，不重启 X11/SPI。"
+        )
+        return fields
+
+    def _emit_desktop_result(self, result: OperationResult) -> None:
+        if not result.ok:
+            self.emit({"toast": f"桌面设置失败：{self._failure(result)}"})
+            self.emit(self.collect_layout())
+            return
+        preferences = result.data.get("preferences", {})
+        fields: dict[str, object] = {"toast": "桌面设置已实时应用"}
+        if isinstance(preferences, dict):
+            for key, value in preferences.items():
+                fields[f"appearance.preference.{key}"] = (
+                    "1" if value is True else "0" if value is False else value
+                )
+        self.emit(fields)
+
+    @staticmethod
+    def _layout_values(payload: dict[str, Any]) -> tuple[str, str]:
+        effective = payload.get("effective", payload)
+        if not isinstance(effective, dict):
+            effective = {}
+        profile = str(effective.get("profile") or "mobile")
+        if profile not in {"mobile", "desktop", "kiosk"}:
+            profile = "mobile"
+        insets = effective.get("insets_policy", "auto")
+        if isinstance(insets, dict):
+            try:
+                insets = ",".join(
+                    str(int(insets[edge]))
+                    for edge in ("top", "right", "bottom", "left")
+                )
+            except (KeyError, TypeError, ValueError):
+                insets = "auto"
+        if not isinstance(insets, str):
+            insets = "auto"
+        return profile, insets
 
     def collect_audio(self) -> dict[str, object]:
         result = self.model.audio_state(refresh=False)
@@ -389,6 +469,58 @@ class Bridge:
 
     def action(self, name: str, value: str) -> None:
         result: OperationResult
+        if name == "appearance_wallpaper":
+            color, path = value[:7], value[7:]
+            with self._desktop_lock:
+                result = self.model.update_desktop_preferences({
+                    "wallpaper_color": color,
+                    "wallpaper_path": path,
+                })
+                self._emit_desktop_result(result)
+            return
+        desktop_fields = {
+            "appearance_set_layout": "layout",
+            "appearance_set_navigation_mode": "navigation_mode",
+            "icon_size": "icon_size",
+            "icon_spacing": "icon_spacing",
+            "grid_columns": "grid_columns",
+            "grid_rows": "grid_rows",
+            "show_labels": "show_labels",
+            "folders_enabled": "folders_enabled",
+            "large_folders_enabled": "large_folders_enabled",
+            "acrylic": "acrylic",
+            "animations_enabled": "animations_enabled",
+            "reduce_motion": "reduce_motion",
+        }
+        if name in desktop_fields:
+            field = desktop_fields[name]
+            typed: object = value
+            if field in {
+                "show_labels", "folders_enabled", "large_folders_enabled",
+                "acrylic", "animations_enabled", "reduce_motion",
+            }:
+                typed = value in {"1", "true"}
+            with self._desktop_lock:
+                result = self.model.update_desktop_preferences({field: typed})
+                self._emit_desktop_result(result)
+            return
+        if name == "appearance_orientation":
+            with self._desktop_lock:
+                current = self.model.get_layout()
+                if not current.ok:
+                    self.emit({"toast": f"方向设置失败：{self._failure(current)}"})
+                    return
+                profile, insets = self._layout_values(current.data)
+                result = self.model.set_layout(profile, value, insets)
+                if result.ok:
+                    self.emit({
+                        "appearance.orientation": value,
+                        "toast": "屏幕方向已实时应用",
+                    })
+                else:
+                    self.emit({"toast": f"方向设置失败：{self._failure(result)}"})
+                    self.emit(self.collect_layout())
+            return
         if name == "software_page":
             if value in {"apps", "updates", "detail"}:
                 self._software_page = value
@@ -486,6 +618,16 @@ def main() -> int:
                 threading.Thread(
                     target=lambda: bridge.emit(bridge.collect_apps()),
                     name="settings-lvgl-package-event",
+                    daemon=True,
+                ).start()
+                return
+            if bridge.mode != "software-center" and topic in {
+                "msys.shell.preferences.changed",
+                "msys.layout.changed",
+            }:
+                threading.Thread(
+                    target=lambda: bridge.emit(bridge.collect_layout()),
+                    name="settings-lvgl-desktop-event",
                     daemon=True,
                 ).start()
 

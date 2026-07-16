@@ -614,6 +614,15 @@ ENGLISH_FALLBACK.update(
         "appearance.grid_columns": "Grid columns (0 = auto)",
         "appearance.grid_rows": "Grid rows (0 = auto)",
         "appearance.acrylic": "Use lightweight acrylic surfaces",
+        "appearance.navigation_mode": "Navigation style",
+        "appearance.navigation_buttons": "Back / Home / Recent buttons",
+        "appearance.navigation_pill": "Gesture pill",
+        "appearance.icon_spacing": "Icon spacing",
+        "appearance.folders_enabled": "Enable desktop folders",
+        "appearance.large_folders_enabled": "Allow large desktop folders",
+        "appearance.animations_enabled": "Enable lightweight animations",
+        "appearance.reduce_motion": "Reduce motion",
+        "appearance.live_apply_note": "These launcher preferences apply live. X11 and the SPI output are not restarted.",
     }
 )
 

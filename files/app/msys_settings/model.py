@@ -23,6 +23,7 @@ LAYOUT_PROFILES = ("mobile", "kiosk", "desktop")
 ORIENTATIONS = ("auto", "portrait", "landscape")
 DESKTOP_LAYOUTS = ("profile", "auto", "mobile", "desktop", "kiosk")
 DESKTOP_SORTS = ("name", "component")
+NAVIGATION_MODES = ("buttons", "pill")
 PACKAGE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+$")
 ROLE_NAME = re.compile(r"^[a-z][a-z0-9.-]{0,127}$")
 HAL_DOMAIN = re.compile(r"^[a-z][a-z0-9.-]{0,63}$")
@@ -102,6 +103,12 @@ DEFAULT_DESKTOP_PREFERENCES: dict[str, Any] = {
     "grid_columns": 0,
     "grid_rows": 0,
     "acrylic": False,
+    "navigation_mode": "pill",
+    "icon_spacing": 8,
+    "folders_enabled": True,
+    "large_folders_enabled": True,
+    "animations_enabled": True,
+    "reduce_motion": False,
 }
 
 
@@ -632,6 +639,12 @@ class SettingsModel:
         grid_columns: int | str = 0,
         grid_rows: int | str = 0,
         acrylic: bool = False,
+        navigation_mode: str = "pill",
+        icon_spacing: int | str = 8,
+        folders_enabled: bool = True,
+        large_folders_enabled: bool = True,
+        animations_enabled: bool = True,
+        reduce_motion: bool = False,
     ) -> OperationResult:
         try:
             preferences = validate_desktop_preferences(
@@ -646,8 +659,64 @@ class SettingsModel:
                     "grid_columns": grid_columns,
                     "grid_rows": grid_rows,
                     "acrylic": acrylic,
+                    "navigation_mode": navigation_mode,
+                    "icon_spacing": icon_spacing,
+                    "folders_enabled": folders_enabled,
+                    "large_folders_enabled": large_folders_enabled,
+                    "animations_enabled": animations_enabled,
+                    "reduce_motion": reduce_motion,
                 }
             )
+        except (TypeError, ValueError) as exc:
+            return OperationResult(
+                False,
+                message=str(exc),
+                code="INVALID_PREFERENCES",
+            )
+        result = self._safe(lambda: self.client.set_desktop_preferences(preferences))
+        if not result.ok:
+            return result
+        try:
+            result.data = normalise_desktop_preferences(result.data)
+        except (TypeError, ValueError) as exc:
+            return OperationResult(
+                False,
+                {"response": result.data},
+                str(exc),
+                "SHELL_BAD_RESPONSE",
+            )
+        return result
+
+    def update_desktop_preferences(
+        self, changes: dict[str, Any]
+    ) -> OperationResult:
+        """Merge a small UI mutation into the launcher's current typed state.
+
+        The launcher remains the source of truth.  Reading before writing also
+        preserves optional fields supplied by a replaceable launcher instead
+        of making Settings own a second preferences file.
+        """
+
+        if not isinstance(changes, dict) or not changes:
+            return OperationResult(
+                False,
+                message="Desktop preference changes must be a non-empty object",
+                code="INVALID_PREFERENCES",
+            )
+        unknown = sorted(set(changes) - set(DEFAULT_DESKTOP_PREFERENCES))
+        if unknown:
+            return OperationResult(
+                False,
+                message=f"Unknown desktop preferences: {', '.join(unknown)}",
+                code="INVALID_PREFERENCES",
+            )
+        current = self.desktop_preferences()
+        if not current.ok:
+            return current
+        merged = dict(current.data["preferences"])
+        merged.update(changes)
+        try:
+            preferences = validate_desktop_preferences(merged)
         except (TypeError, ValueError) as exc:
             return OperationResult(
                 False,
@@ -1747,6 +1816,21 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     acrylic = payload.get("acrylic", False)
     if not isinstance(acrylic, bool):
         raise ValueError("Acrylic must be true or false")
+    navigation_mode = payload.get("navigation_mode", "pill")
+    if navigation_mode not in NAVIGATION_MODES:
+        raise ValueError(f"Unsupported navigation mode: {navigation_mode}")
+    icon_spacing = grid_amount("icon_spacing", 48)
+
+    def boolean(field: str, default: bool) -> bool:
+        value = payload.get(field, default)
+        if not isinstance(value, bool):
+            raise ValueError(f"{field} must be true or false")
+        return value
+
+    folders_enabled = boolean("folders_enabled", True)
+    large_folders_enabled = boolean("large_folders_enabled", True)
+    animations_enabled = boolean("animations_enabled", True)
+    reduce_motion = boolean("reduce_motion", False)
     return {
         "layout": str(layout),
         "wallpaper_color": wallpaper.upper(),
@@ -1758,6 +1842,12 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
         "grid_columns": grid_columns,
         "grid_rows": grid_rows,
         "acrylic": acrylic,
+        "navigation_mode": str(navigation_mode),
+        "icon_spacing": icon_spacing,
+        "folders_enabled": folders_enabled,
+        "large_folders_enabled": large_folders_enabled,
+        "animations_enabled": animations_enabled,
+        "reduce_motion": reduce_motion,
     }
 
 
