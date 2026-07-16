@@ -1797,8 +1797,8 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ValueError("Wallpaper path must be an absolute PPM path or empty")
 
-    def grid_amount(field: str, maximum: int) -> int:
-        raw = payload.get(field, 0)
+    def grid_amount(field: str, maximum: int, default: int = 0) -> int:
+        raw = payload.get(field, default)
         if isinstance(raw, bool):
             raise ValueError(f"{field} must be a whole number from 0 to {maximum}")
         try:
@@ -1819,7 +1819,9 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     navigation_mode = payload.get("navigation_mode", "pill")
     if navigation_mode not in NAVIGATION_MODES:
         raise ValueError(f"Unsupported navigation mode: {navigation_mode}")
-    icon_spacing = grid_amount("icon_spacing", 48)
+    icon_spacing = grid_amount(
+        "icon_spacing", 48, int(DEFAULT_DESKTOP_PREFERENCES["icon_spacing"])
+    )
 
     def boolean(field: str, default: bool) -> bool:
         value = payload.get(field, default)
