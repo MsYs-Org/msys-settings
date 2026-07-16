@@ -574,6 +574,49 @@ ENGLISH_FALLBACK.update(
     }
 )
 
+ENGLISH_FALLBACK.update(
+    {
+        "software_center.title": "Software Center",
+        "software_center.name": "Software Center",
+        "software_center.summary": "Installed software, updates and recovery",
+        "nav.storage": "Storage",
+        "home.storage.note": "TF cards, USB drives and automatic mounting",
+        "home.calibration.title": "Touch calibration",
+        "home.calibration.checking": "Checking whether calibration is installed",
+        "home.calibration.ready": "Calibrate touch points and save the mapping",
+        "home.calibration.unavailable": "Calibration app is not installed",
+        "home.calibration.started": "Touch calibration opened",
+        "status.checking_calibration": "Checking touch calibration…",
+        "status.starting_calibration": "Opening touch calibration…",
+        "status.loading_storage": "Reading removable storage…",
+        "status.saving_storage": "Saving automatic mounting…",
+        "status.mounting_storage": "Mounting volume…",
+        "status.unmounting_storage": "Unmounting volume…",
+        "apps.installed": "Installed",
+        "apps.package_not_found": "Package {package} is not installed.",
+        "storage.title": "Storage",
+        "storage.note": "Manage TF cards, USB drives and the lightweight automatic mount policy.",
+        "storage.not_loaded": "Storage not loaded",
+        "storage.waiting": "Waiting for the storage provider",
+        "storage.unavailable": "Storage provider unavailable",
+        "storage.ready": "Removable storage",
+        "storage.summary": "{count} volume(s) · managed below {root}",
+        "storage.no_volumes": "No removable TF card or USB volume was found.",
+        "storage.auto_mount": "Mount removable media automatically",
+        "storage.mounted": "Mounted",
+        "storage.not_mounted": "Not mounted",
+        "storage.mount": "Mount",
+        "storage.unmount": "Unmount",
+        "storage.volume_error": "Last operation failed: {reason}",
+        "appearance.desktop_options": "Desktop layout and effects",
+        "appearance.wallpaper_path": "Wallpaper PPM path",
+        "appearance.wallpaper_path_hint": "Use an absolute, pre-scaled PPM image. Acrylic uses a static pre-blurred surface; no real-time blur is rendered.",
+        "appearance.grid_columns": "Grid columns (0 = auto)",
+        "appearance.grid_rows": "Grid rows (0 = auto)",
+        "appearance.acrylic": "Use lightweight acrylic surfaces",
+    }
+)
+
 
 class SettingsI18n:
     """Safe facade over the shared catalog implementation."""

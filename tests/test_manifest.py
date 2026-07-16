@@ -19,7 +19,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.2.26")
+        self.assertEqual(__version__, "0.2.27")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -83,6 +83,7 @@ class ManifestTests(unittest.TestCase):
                 "audio",
                 "appearance",
                 "apps",
+                "storage",
                 "roles",
                 "hal",
                 "updates",
@@ -99,6 +100,7 @@ class ManifestTests(unittest.TestCase):
             "mipc.call:role:install-agent",
             "mipc.call:role:input-method",
             "mipc.call:role:audio-manager",
+            "mipc.call:role:storage",
             "mipc.call:org.msys.hal.manager.v1",
             "mipc.call:org.msys.hal.ch347-control.v1",
             "mipc.event:subscribe:msys.activation",
@@ -127,6 +129,27 @@ class ManifestTests(unittest.TestCase):
         )
         entry = component["exec"][1].removeprefix("@package/")
         self.assertTrue((ROOT / entry).is_file())
+
+        software = manifest["components"][1]
+        self.assertEqual(software["id"], "software-center")
+        self.assertEqual(
+            software["windowing"]["identity"],
+            {
+                "app_id": "org.msys.software-center",
+                "x11_wm_class": "org.msys.software-center",
+                "x11_wm_instance": "software-center",
+            },
+        )
+        self.assertTrue(software["activation"]["launchable"])
+        self.assertEqual(software["env"]["MSYS_SETTINGS_MODE"], "software-center")
+        self.assertEqual(
+            {
+                item["name"]
+                for item in software["activation"]["intents"]
+                if item["action"] == "software-center"
+            },
+            {"apps", "updates", "details", "uninstall"},
+        )
 
     def test_launcher_icon_is_declared_and_is_a_valid_ppm(self) -> None:
         manifest = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8"))

@@ -89,6 +89,7 @@ DISPLAY_MIGRATION_SCHEMA = "msys.display-migration.v1"
 DISPLAY_MIGRATION_PHASES = ("planned", "switching", "succeeded", "rolled-back")
 DISPLAY_MIGRATION_TERMINAL_PHASES = frozenset({"succeeded", "rolled-back"})
 INPUT_METHOD_STATE_SCHEMA = "msys.input-method-state.v1"
+TOUCH_CALIBRATION_COMPONENT = "org.msys.touch-calibration:touch-calibration"
 
 DEFAULT_DESKTOP_PREFERENCES: dict[str, Any] = {
     "layout": "profile",
@@ -97,6 +98,10 @@ DEFAULT_DESKTOP_PREFERENCES: dict[str, Any] = {
     "icon_size": 64,
     "show_labels": True,
     "sort": "name",
+    "wallpaper_path": "",
+    "grid_columns": 0,
+    "grid_rows": 0,
+    "acrylic": False,
 }
 
 
@@ -331,6 +336,101 @@ class SettingsModel:
         message = "Some system information is unavailable" if failures else ""
         return OperationResult(True, sections, message)
 
+    def touch_calibration_status(self) -> OperationResult:
+        """Report whether the optional calibration application is installed."""
+
+        result = self._safe(self.client.list_components)
+        if not result.ok:
+            return result
+        rows = result.data.get("components", [])
+        available = any(
+            isinstance(row, dict) and row.get("id") == TOUCH_CALIBRATION_COMPONENT
+            for row in rows if isinstance(rows, list)
+        )
+        return OperationResult(
+            True,
+            {
+                "component": TOUCH_CALIBRATION_COMPONENT,
+                "available": available,
+            },
+        )
+
+    def start_touch_calibration(self) -> OperationResult:
+        return self._safe(
+            lambda: self.client.start_component(TOUCH_CALIBRATION_COMPONENT)
+        )
+
+    @staticmethod
+    def _storage_result(result: OperationResult) -> OperationResult:
+        """Keep the storage contract small while normalising its UI fields."""
+
+        if not result.ok:
+            return result
+        payload = result.data
+        if not isinstance(payload, dict):
+            return OperationResult(
+                False,
+                message="Storage provider returned a non-object state",
+                code="STORAGE_BAD_RESPONSE",
+            )
+        raw_volumes = payload.get("volumes", [])
+        if not isinstance(raw_volumes, list):
+            return OperationResult(
+                False,
+                message="Storage provider returned an invalid volume list",
+                code="STORAGE_BAD_RESPONSE",
+            )
+        volumes: list[dict[str, Any]] = []
+        for raw in raw_volumes[:64]:
+            if not isinstance(raw, dict):
+                continue
+            identifier = str(raw.get("id") or "").strip()
+            if not identifier:
+                continue
+            volumes.append(
+                {
+                    **raw,
+                    "id": identifier,
+                    "name": str(raw.get("label") or raw.get("name") or identifier),
+                    "mounted": raw.get("mounted") is True,
+                    "managed": raw.get("managed") is True,
+                    "read_only": raw.get("read_only") is True,
+                    "mount_point": str(raw.get("mount_point") or ""),
+                }
+            )
+        result.data = {
+            **payload,
+            "available": True,
+            "auto_mount": payload.get("auto_mount") is True,
+            "volumes": volumes,
+        }
+        return result
+
+    def storage_state(self) -> OperationResult:
+        return self._storage_result(self._safe(self.client.storage_get_state))
+
+    def storage_refresh(self) -> OperationResult:
+        return self._storage_result(self._safe(self.client.storage_refresh))
+
+    def storage_set_auto_mount(self, enabled: bool) -> OperationResult:
+        return self._storage_result(
+            self._safe(lambda: self.client.storage_set_config(bool(enabled)))
+        )
+
+    def storage_mount(self, volume_id: str, *, read_only: bool = False) -> OperationResult:
+        response = self._safe(
+            lambda: self.client.storage_mount(volume_id, read_only=read_only)
+        )
+        if not response.ok:
+            return response
+        return self.storage_state()
+
+    def storage_unmount(self, volume_id: str) -> OperationResult:
+        response = self._safe(lambda: self.client.storage_unmount(volume_id))
+        if not response.ok:
+            return response
+        return self.storage_state()
+
     def get_layout(self) -> OperationResult:
         return self._safe(self.client.get_layout)
 
@@ -528,6 +628,10 @@ class SettingsModel:
         icon_size: int | str,
         show_labels: bool,
         sort: str,
+        wallpaper_path: str = "",
+        grid_columns: int | str = 0,
+        grid_rows: int | str = 0,
+        acrylic: bool = False,
     ) -> OperationResult:
         try:
             preferences = validate_desktop_preferences(
@@ -538,6 +642,10 @@ class SettingsModel:
                     "icon_size": icon_size,
                     "show_labels": show_labels,
                     "sort": sort,
+                    "wallpaper_path": wallpaper_path,
+                    "grid_columns": grid_columns,
+                    "grid_rows": grid_rows,
+                    "acrylic": acrylic,
                 }
             )
         except (TypeError, ValueError) as exc:
@@ -1567,9 +1675,16 @@ def validate_layout(
 def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise TypeError("Desktop preferences must be an object")
-    required = set(DEFAULT_DESKTOP_PREFERENCES)
+    required = {
+        "layout",
+        "wallpaper_color",
+        "accent_color",
+        "icon_size",
+        "show_labels",
+        "sort",
+    }
     missing = sorted(required - set(payload))
-    unknown = sorted(set(payload) - required)
+    unknown = sorted(set(payload) - set(DEFAULT_DESKTOP_PREFERENCES))
     if missing:
         raise ValueError(f"Desktop preferences are missing: {', '.join(missing)}")
     if unknown:
@@ -1603,6 +1718,35 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     show_labels = payload["show_labels"]
     if not isinstance(show_labels, bool):
         raise ValueError("Show labels must be true or false")
+    wallpaper_path = payload.get("wallpaper_path", "")
+    if (
+        not isinstance(wallpaper_path, str)
+        or (
+            wallpaper_path
+            and (not wallpaper_path.startswith("/") or not wallpaper_path.lower().endswith(".ppm"))
+        )
+    ):
+        raise ValueError("Wallpaper path must be an absolute PPM path or empty")
+
+    def grid_amount(field: str, maximum: int) -> int:
+        raw = payload.get(field, 0)
+        if isinstance(raw, bool):
+            raise ValueError(f"{field} must be a whole number from 0 to {maximum}")
+        try:
+            value = int(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"{field} must be a whole number from 0 to {maximum}"
+            ) from exc
+        if str(value) != str(raw).strip() or not 0 <= value <= maximum:
+            raise ValueError(f"{field} must be a whole number from 0 to {maximum}")
+        return value
+
+    grid_columns = grid_amount("grid_columns", 8)
+    grid_rows = grid_amount("grid_rows", 6)
+    acrylic = payload.get("acrylic", False)
+    if not isinstance(acrylic, bool):
+        raise ValueError("Acrylic must be true or false")
     return {
         "layout": str(layout),
         "wallpaper_color": wallpaper.upper(),
@@ -1610,6 +1754,10 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
         "icon_size": icon_size,
         "show_labels": show_labels,
         "sort": str(sort),
+        "wallpaper_path": wallpaper_path,
+        "grid_columns": grid_columns,
+        "grid_rows": grid_rows,
+        "acrylic": acrylic,
     }
 
 
@@ -1623,7 +1771,10 @@ def normalise_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise TypeError("Launcher returned non-object desktop preferences")
     preference_fields = set(DEFAULT_DESKTOP_PREFERENCES)
-    selected = {key: raw[key] for key in preference_fields if key in raw}
+    selected = {
+        key: raw.get(key, default)
+        for key, default in DEFAULT_DESKTOP_PREFERENCES.items()
+    }
     try:
         preferences = validate_desktop_preferences(selected)
     except (TypeError, ValueError) as exc:

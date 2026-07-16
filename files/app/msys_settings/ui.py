@@ -204,6 +204,15 @@ class SettingsApplication:
         "msys.install.error",
         "msys.display.migration",
         "msys.audio.changed",
+        "msys.hal.storage.changed",
+    )
+    SOFTWARE_CENTER_EVENT_TOPICS = (
+        "msys.activation",
+        "msys.update.checked",
+        "msys.update.applied",
+        "msys.update.error",
+        "msys.install.package_changed",
+        "msys.install.error",
     )
 
     def __init__(
@@ -227,9 +236,23 @@ class SettingsApplication:
         # ComponentChannel.start(). Standalone callers retain the immediate
         # refresh used by earlier releases.
         self._initial_refresh_enabled = not defer_initial_refresh
+        self.mode = os.environ.get("MSYS_SETTINGS_MODE", "settings")
+        self.event_topics = (
+            self.SOFTWARE_CENTER_EVENT_TOPICS
+            if self.mode == "software-center"
+            else self.EVENT_TOPICS
+        )
+        self._root_page = "apps" if self.mode == "software-center" else "home"
         class_name = os.environ.get("MSYS_WINDOW_IDENTITY", "org.msys.settings")
         self.root = tk.Tk(className=class_name)
-        self.root.title(os.environ.get("MSYS_WINDOW_TITLE", self.tr("app.title")))
+        self.root.title(
+            os.environ.get(
+                "MSYS_WINDOW_TITLE",
+                self.tr("software_center.title")
+                if self.mode == "software-center"
+                else self.tr("app.title"),
+            )
+        )
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self._closed = False
@@ -237,7 +260,7 @@ class SettingsApplication:
         self._ui_queue: queue.Queue[tuple[str, Any, Any]] = queue.Queue()
         self._busy = 0
         self._pages: dict[str, BasePage] = {}
-        self._active_page = "home"
+        self._active_page = self._root_page
         self._page_history: list[str] = []
         self.compact = is_compact(self.root.winfo_screenwidth())
         configure_tk_fonts(
@@ -372,7 +395,15 @@ class SettingsApplication:
             nav.pack(side="left", fill="y")
             nav.configure(width=self.metrics.navigation_width)
             nav.pack_propagate(False)
-            ttk.Label(nav, text=self.tr("app.title"), style="Title.TLabel").pack(
+            ttk.Label(
+                nav,
+                text=self.tr(
+                    "software_center.title"
+                    if self.mode == "software-center"
+                    else "app.title"
+                ),
+                style="Title.TLabel",
+            ).pack(
                 anchor="w", pady=(0, 12)
             )
             ttk.Label(
@@ -392,20 +423,27 @@ class SettingsApplication:
         content = ttk.Frame(body, style="Panel.TFrame")
         content.pack(side="left", fill="both", expand=True, padx=(0 if self.compact else 1, 0))
 
-        page_types: list[tuple[str, str, type[BasePage]]] = [
-            ("home", "nav.home", HomePage),
-            ("wifi", "nav.wifi", WifiPage),
-            ("bluetooth", "nav.bluetooth", BluetoothPage),
-            ("audio", "nav.audio", AudioPage),
-            ("layout", "nav.display", LayoutPage),
-            ("appearance", "nav.appearance", AppearancePage),
-            ("apps", "nav.apps", AppsPage),
-            ("roles", "nav.roles", RolesPage),
-            ("hal", "nav.hal", HalPage),
-            ("updates", "nav.updates", UpdatesPage),
-            ("regional", "nav.regional", RegionalPage),
-            ("system", "nav.system", SystemPage),
-        ]
+        if self.mode == "software-center":
+            page_types: list[tuple[str, str, type[BasePage]]] = [
+                ("apps", "nav.apps", AppsPage),
+                ("updates", "nav.updates", UpdatesPage),
+            ]
+        else:
+            page_types = [
+                ("home", "nav.home", HomePage),
+                ("wifi", "nav.wifi", WifiPage),
+                ("bluetooth", "nav.bluetooth", BluetoothPage),
+                ("audio", "nav.audio", AudioPage),
+                ("layout", "nav.display", LayoutPage),
+                ("appearance", "nav.appearance", AppearancePage),
+                ("storage", "nav.storage", StoragePage),
+                ("apps", "nav.apps", AppsPage),
+                ("roles", "nav.roles", RolesPage),
+                ("hal", "nav.hal", HalPage),
+                ("updates", "nav.updates", UpdatesPage),
+                ("regional", "nav.regional", RegionalPage),
+                ("system", "nav.system", SystemPage),
+            ]
         self._nav_entries = tuple(
             (key, self.tr(label_key)) for key, label_key, _page in page_types
         )
@@ -434,7 +472,7 @@ class SettingsApplication:
         )
         if not self.compact:
             self.activity.pack(in_=footer, side="right")
-        self.show_page("home")
+        self.show_page(self._root_page)
 
     def _schedule_navigation_filter(self, *_args: Any) -> None:
         if self.compact:
@@ -499,7 +537,7 @@ class SettingsApplication:
         self._active_page = name
         self.page_title.set(self._page_titles.get(name, self.tr("app.title")))
         if self.compact and self.back_button is not None:
-            if name == "home":
+            if name == self._root_page:
                 self.back_button.pack_forget()
             elif not self.back_button.winfo_manager():
                 self.back_button.pack(side="left", before=self.header_title)
@@ -514,13 +552,14 @@ class SettingsApplication:
     def navigate_back(self) -> bool:
         """Return to the previous in-app page without ending the component."""
 
+        root_page = getattr(self, "_root_page", "home")
         while self._page_history:
             target = self._page_history.pop()
             if target in self._pages and target != self._active_page:
                 self.show_page(target, record_history=False)
                 return True
-        if self._active_page != "home" and "home" in self._pages:
-            self.show_page("home", record_history=False)
+        if self._active_page != root_page and root_page in self._pages:
+            self.show_page(root_page, record_history=False)
             return True
         return False
 
@@ -697,6 +736,29 @@ class SettingsApplication:
                 payload = event.get("payload", {})
                 status_handled = False
                 if topic == "msys.activation" and isinstance(payload, dict):
+                    if self.mode == "software-center":
+                        action = str(payload.get("action") or "")
+                        panel = str(
+                            payload.get("name")
+                            or payload.get("panel")
+                            or "apps"
+                        )
+                        selected = str(
+                            payload.get("component")
+                            or payload.get("selected_component")
+                            or ""
+                        )
+                        page = "updates" if panel == "updates" else "apps"
+                        self.show_page(page)
+                        apps = self._pages.get("apps")
+                        if (
+                            isinstance(apps, AppsPage)
+                            and selected
+                            and panel in {"details", "uninstall", "apps"}
+                        ):
+                            apps.activate_package(selected, panel)
+                        status_handled = action in {"", "software-center"}
+                        continue
                     panel = str(payload.get("name", "system"))
                     page = (
                         "home"
@@ -759,6 +821,11 @@ class SettingsApplication:
                     # This is an invalidation signal, not user-facing status.
                     # The active page refreshes itself and inactive pages are
                     # marked stale without exposing the raw event topic.
+                    status_handled = True
+                elif topic == "msys.hal.storage.changed":
+                    storage = self._pages.get("storage")
+                    if isinstance(storage, StoragePage) and storage._loaded:
+                        storage.refresh()
                     status_handled = True
                 elif topic == "msys.display.migration" and isinstance(payload, dict):
                     self.handle_display_migration(payload)
@@ -831,7 +898,13 @@ class SettingsApplication:
         self._active_page = ""
         refresh_enabled = self._initial_refresh_enabled
         self._initial_refresh_enabled = False
-        self.root.title(self.tr("app.title"))
+        self.root.title(
+            self.tr(
+                "software_center.title"
+                if self.mode == "software-center"
+                else "app.title"
+            )
+        )
         self._build_style()
         self._build_shell()
         self._initial_refresh_enabled = refresh_enabled
@@ -964,9 +1037,22 @@ class HomePage(BasePage):
         )
         self.keyboard_card.set_disabled(True)
         self.keyboard_card.pack(fill="x", pady=(0, app.metrics.card_gap))
+        self.calibration_card = MaterialCardButton(
+            more,
+            title=app.tr("home.calibration.title"),
+            subtitle=app.tr("home.calibration.checking"),
+            icon="Tc",
+            command=self.start_calibration,
+            height=62 if app.compact else 68,
+            compact=True,
+            scroll=surface.scroll_pixels,
+        )
+        self.calibration_card.set_disabled(True)
+        self.calibration_card.pack(fill="x", pady=(0, app.metrics.card_gap))
         more_items = (
             ("audio", "Au", "nav.audio", "home.audio.note"),
             ("appearance", "A", "nav.appearance", "home.appearance.note"),
+            ("storage", "St", "nav.storage", "home.storage.note"),
             ("apps", "P", "nav.apps", "home.apps.note"),
             ("roles", "R", "nav.roles", "home.roles.note"),
             ("hal", "H", "nav.hal", "home.hal.note"),
@@ -993,10 +1079,16 @@ class HomePage(BasePage):
 
     def refresh(self) -> None:
         self.keyboard_card.set_disabled(True)
+        self.calibration_card.set_disabled(True)
         self.app.run_task(
             self.app.tr("status.loading_keyboard"),
             self.app.model.input_method_status,
             self._keyboard_result,
+        )
+        self.app.run_task(
+            self.app.tr("status.checking_calibration"),
+            self.app.model.touch_calibration_status,
+            self._calibration_status,
         )
 
     def toggle_keyboard(self) -> None:
@@ -1020,6 +1112,38 @@ class HomePage(BasePage):
         )
         self.keyboard_card.set_disabled(False)
         self.app.set_status(self.app.tr("common.ready"))
+        return True
+
+    def start_calibration(self) -> None:
+        self.calibration_card.set_disabled(True)
+        self.app.run_task(
+            self.app.tr("status.starting_calibration"),
+            self.app.model.start_touch_calibration,
+            self._calibration_started,
+        )
+
+    def _calibration_status(self, result: OperationResult) -> bool:
+        available = result.ok and result.data.get("available") is True
+        self.calibration_card.set_text(
+            subtitle=self.app.tr(
+                "home.calibration.ready"
+                if available
+                else "home.calibration.unavailable"
+            )
+        )
+        self.calibration_card.set_disabled(not available)
+        return True
+
+    def _calibration_started(self, result: OperationResult) -> bool:
+        if result.ok:
+            self.app.set_status(self.app.tr("home.calibration.started"))
+            self.calibration_card.set_disabled(False)
+        else:
+            self.app.set_status(
+                result.message or self.app.tr("home.calibration.unavailable"),
+                error=True,
+            )
+            self.calibration_card.set_disabled(False)
         return True
 
     @staticmethod
@@ -4333,6 +4457,10 @@ class AppearancePage(BasePage):
         self.icon_size = tk.StringVar(value="64")
         self.show_labels = tk.BooleanVar(value=True)
         self.sort = tk.StringVar(value=self._sort_labels["name"])
+        self.wallpaper_path = tk.StringVar(value="")
+        self.grid_columns = tk.StringVar(value="0")
+        self.grid_rows = tk.StringVar(value="0")
+        self.acrylic = tk.BooleanVar(value=False)
         self.message = tk.StringVar(value=app.tr("common.not_loaded"))
         self._preview_after: Any = None
         self._preview_signature: tuple[Any, ...] | None = None
@@ -4449,6 +4577,59 @@ class AppearancePage(BasePage):
                 variable=self.show_labels,
                 command=self._schedule_preview,
             ).grid(row=3, column=2, sticky="w", padx=4, pady=(3, 0))
+
+        desktop_options = ttk.LabelFrame(
+            container,
+            text=app.tr("appearance.desktop_options"),
+            padding=(9, 7),
+        )
+        desktop_options.pack(fill="x", pady=(9, 2))
+        ttk.Label(
+            desktop_options,
+            text=app.tr("appearance.wallpaper_path_hint"),
+            style="Panel.TLabel",
+            justify="left",
+            wraplength=270 if app.compact else 680,
+        ).grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+        self._field(
+            desktop_options,
+            app.tr("appearance.wallpaper_path"),
+            ttk.Entry(desktop_options, textvariable=self.wallpaper_path),
+            1,
+            0,
+            span=2,
+        )
+        self._field(
+            desktop_options,
+            app.tr("appearance.grid_columns"),
+            ttk.Spinbox(
+                desktop_options,
+                textvariable=self.grid_columns,
+                from_=0,
+                to=8,
+                increment=1,
+            ),
+            3,
+            0,
+        )
+        self._field(
+            desktop_options,
+            app.tr("appearance.grid_rows"),
+            ttk.Spinbox(
+                desktop_options,
+                textvariable=self.grid_rows,
+                from_=0,
+                to=6,
+                increment=1,
+            ),
+            3,
+            1,
+        )
+        ttk.Checkbutton(
+            desktop_options,
+            text=app.tr("appearance.acrylic"),
+            variable=self.acrylic,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(5, 0))
 
         actions = ttk.Frame(container, style="Panel.TFrame")
         actions.pack(fill="x", pady=(7, 4))
@@ -4601,13 +4782,16 @@ class AppearancePage(BasePage):
                 self.icon_size.get(),
                 self.show_labels.get(),
                 self._sort_value(),
+                self.wallpaper_path.get().strip(),
+                self.grid_columns.get(),
+                self.grid_rows.get(),
+                self.acrylic.get(),
             ),
             self._show_result,
         )
 
     def _show_result(self, result: OperationResult) -> None:
         if not result.ok:
-            self._update_ch347_panel({})
             self.message.set(f"{result.code}: {result.message}".strip(": "))
             return
         preferences = result.data.get("preferences", {})
@@ -4632,6 +4816,10 @@ class AppearancePage(BasePage):
         self.accent.set(str(preferences.get("accent_color", "#55A8FF")))
         self.icon_size.set(str(preferences.get("icon_size", 64)))
         self.show_labels.set(bool(preferences.get("show_labels", True)))
+        self.wallpaper_path.set(str(preferences.get("wallpaper_path", "")))
+        self.grid_columns.set(str(preferences.get("grid_columns", 0)))
+        self.grid_rows.set(str(preferences.get("grid_rows", 0)))
+        self.acrylic.set(bool(preferences.get("acrylic", False)))
         sort = str(preferences.get("sort", "name"))
         self.sort.set(self._sort_labels.get(sort, sort))
         self._schedule_preview()
@@ -6450,6 +6638,198 @@ class Ch347ControlDialog:
         return True
 
 
+def _storage_size(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return ""
+    amount = float(value)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if amount < 1024.0 or unit == "TiB":
+            return f"{amount:.0f} {unit}" if unit == "B" else f"{amount:.1f} {unit}"
+        amount /= 1024.0
+    return ""
+
+
+class StoragePage(BasePage):
+    title_key = "storage.title"
+    note_key = "storage.note"
+
+    def __init__(self, parent: ttk.Frame, app: SettingsApplication) -> None:
+        super().__init__(parent, app)
+        self.auto_mount = tk.BooleanVar(value=False)
+        self.surface = ScrollableSurface(self, background=PANEL)
+        self.surface.pack(fill="both", expand=True)
+        container = self.surface.content
+
+        self.summary_title = tk.StringVar(value=app.tr("storage.not_loaded"))
+        self.summary_body = tk.StringVar(value=app.tr("storage.waiting"))
+        self.summary_card = MaterialStatusCard(
+            container,
+            title=self.summary_title,
+            body=self.summary_body,
+            compact=app.compact,
+        )
+        self.summary_card.pack(fill="x", pady=(0, 9))
+
+        controls = ttk.Frame(container, style="Panel.TFrame")
+        controls.pack(fill="x", pady=(0, 9))
+        self.auto_button = ttk.Checkbutton(
+            controls,
+            text=app.tr("storage.auto_mount"),
+            variable=self.auto_mount,
+            command=self.set_auto_mount,
+        )
+        self.auto_button.pack(side="top" if app.compact else "left", anchor="w")
+        ttk.Button(
+            controls,
+            text=app.tr("common.refresh"),
+            command=self.refresh_now,
+        ).pack(
+            side="top" if app.compact else "right",
+            anchor="e",
+            fill="x" if app.compact else "none",
+            pady=(5, 0) if app.compact else 0,
+        )
+
+        self.volumes = tk.Frame(container, background=PANEL)
+        self.volumes.pack(fill="x")
+
+    def refresh(self) -> None:
+        self._load(self.app.model.storage_state)
+
+    def refresh_now(self) -> None:
+        self._load(self.app.model.storage_refresh)
+
+    def _load(self, operation: Callable[[], OperationResult]) -> None:
+        self.auto_button.state(["disabled"])
+        self.app.run_task(
+            self.app.tr("status.loading_storage"),
+            operation,
+            self._loaded_result,
+        )
+
+    def _loaded_result(self, result: OperationResult) -> bool:
+        for child in self.volumes.winfo_children():
+            child.destroy()
+        if not result.ok:
+            self.summary_title.set(self.app.tr("storage.unavailable"))
+            self.summary_body.set(result.message or result.code or self.app.tr("common.unavailable"))
+            self.summary_card.set_color(ERROR_CONTAINER)
+            self.auto_button.state(["disabled"])
+            return True
+
+        self.auto_mount.set(result.data.get("auto_mount") is True)
+        self.auto_button.state(["!disabled"])
+        rows = result.data.get("volumes", [])
+        count = len(rows) if isinstance(rows, list) else 0
+        self.summary_title.set(self.app.tr("storage.ready"))
+        self.summary_body.set(
+            self.app.tr(
+                "storage.summary",
+                {
+                    "count": count,
+                    "root": str(result.data.get("mount_root") or ""),
+                },
+            )
+        )
+        self.summary_card.set_color(SUCCESS_CONTAINER)
+        if not rows:
+            ttk.Label(
+                self.volumes,
+                text=self.app.tr("storage.no_volumes"),
+                style="Muted.TLabel",
+                wraplength=280 if self.app.compact else 680,
+                justify="left",
+            ).pack(fill="x", pady=12)
+            return True
+        for volume in rows:
+            if isinstance(volume, dict):
+                self._volume_card(volume)
+        return True
+
+    def _volume_card(self, volume: dict[str, Any]) -> None:
+        card = tk.Frame(
+            self.volumes,
+            background=PANEL_ALT,
+            highlightbackground=OUTLINE,
+            highlightthickness=1,
+            padx=10,
+            pady=9,
+        )
+        card.pack(fill="x", pady=(0, 8))
+        name = str(volume.get("name") or volume.get("id") or "")
+        tk.Label(
+            card,
+            text=name,
+            background=PANEL_ALT,
+            foreground=TEXT,
+            anchor="w",
+            font=font_spec(card, 10, "bold"),
+        ).pack(fill="x")
+        mounted = volume.get("mounted") is True
+        details = [
+            self.app.tr("storage.mounted" if mounted else "storage.not_mounted"),
+            str(volume.get("transport") or ""),
+            _storage_size(volume.get("size_bytes")),
+            str(volume.get("mount_point") or volume.get("preferred_mount_point") or ""),
+        ]
+        error = volume.get("error")
+        if isinstance(error, dict):
+            details.append(
+                self.app.tr(
+                    "storage.volume_error",
+                    {"reason": str(error.get("reason") or error.get("code") or "")},
+                )
+            )
+        tk.Label(
+            card,
+            text=" · ".join(item for item in details if item),
+            background=PANEL_ALT,
+            foreground=ERROR if isinstance(error, dict) else MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=270 if self.app.compact else 650,
+        ).pack(fill="x", pady=(3, 7))
+        action = ttk.Button(
+            card,
+            text=self.app.tr("storage.unmount" if mounted else "storage.mount"),
+            command=(
+                lambda identifier=str(volume.get("id") or ""): self.unmount(identifier)
+            )
+            if mounted
+            else (
+                lambda identifier=str(volume.get("id") or ""), read_only=volume.get("read_only") is True: self.mount(identifier, read_only)
+            ),
+        )
+        # Keep externally mounted volumes visible, but do not offer a false
+        # unmount action that the provider will reject as unmanaged.
+        if mounted and volume.get("managed") is not True:
+            action.state(["disabled"])
+        action.pack(fill="x" if self.app.compact else "none", anchor="e")
+
+    def set_auto_mount(self) -> None:
+        selected = bool(self.auto_mount.get())
+        self.auto_button.state(["disabled"])
+        self.app.run_task(
+            self.app.tr("status.saving_storage"),
+            lambda: self.app.model.storage_set_auto_mount(selected),
+            self._loaded_result,
+        )
+
+    def mount(self, identifier: str, read_only: bool) -> None:
+        self.app.run_task(
+            self.app.tr("status.mounting_storage"),
+            lambda: self.app.model.storage_mount(identifier, read_only=read_only),
+            self._loaded_result,
+        )
+
+    def unmount(self, identifier: str) -> None:
+        self.app.run_task(
+            self.app.tr("status.unmounting_storage"),
+            lambda: self.app.model.storage_unmount(identifier),
+            self._loaded_result,
+        )
+
+
 class AppsPage(BasePage):
     title_key = "apps.title"
     note_key = "apps.note"
@@ -6458,6 +6838,8 @@ class AppsPage(BasePage):
         super().__init__(parent, app)
         self.packages: dict[str, dict[str, Any]] = {}
         self._last_result: dict[str, Any] | None = None
+        self._pending_activation: tuple[str, str] | None = None
+        self._registry_loaded = False
         self.surface = ScrollableSurface(self, background=PANEL)
         self.surface.pack(fill="both", expand=True)
         container = self.surface.content
@@ -6477,6 +6859,13 @@ class AppsPage(BasePage):
             pady=(5, 0) if app.compact else 0,
         )
         ttk.Button(actions, text=app.tr("common.refresh"), command=self.refresh).pack(side="left")
+        self.rollback_button = ttk.Button(
+            actions,
+            text=app.tr("common.rollback"),
+            command=self.rollback,
+        )
+        self.rollback_button.pack(side="left", padx=(6, 0))
+        self.rollback_button.state(["disabled"])
         self.uninstall_button = ttk.Button(
             actions,
             text=app.tr("common.uninstall"),
@@ -6484,20 +6873,32 @@ class AppsPage(BasePage):
         )
         self.uninstall_button.pack(side="left", padx=(6, 0))
         self.uninstall_button.state(["disabled"])
+        if app.mode == "software-center":
+            updates_button = ttk.Button(
+                toolbar if app.compact else actions,
+                text=app.tr("nav.updates"),
+                command=lambda: app.show_page("updates"),
+            )
+            if app.compact:
+                updates_button.pack(fill="x", pady=(6, 0))
+            else:
+                updates_button.pack(side="left", padx=(6, 0))
 
         tree_frame = ttk.Frame(container, style="Panel.TFrame")
         tree_frame.pack(fill="x")
         self.tree = ttk.Treeview(
             tree_frame,
-            columns=("package", "version"),
+            columns=("package", "version", "status"),
             show="headings",
             selectmode="browse",
             height=5 if app.compact else 8,
         )
         self.tree.heading("package", text=app.tr("common.package"))
         self.tree.heading("version", text=app.tr("common.version"))
-        self.tree.column("package", width=190 if app.compact else 430, anchor="w")
-        self.tree.column("version", width=88 if app.compact else 140, anchor="w")
+        self.tree.heading("status", text=app.tr("common.status"))
+        self.tree.column("package", width=145 if app.compact else 370, anchor="w")
+        self.tree.column("version", width=70 if app.compact else 125, anchor="w")
+        self.tree.column("status", width=65 if app.compact else 120, anchor="w")
         tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=tree_scroll.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -6524,7 +6925,9 @@ class AppsPage(BasePage):
         _replace_text(self.details, app.tr("apps.select_inspect"))
 
     def refresh(self) -> None:
+        self._registry_loaded = False
         self.uninstall_button.state(["disabled"])
+        self.rollback_button.state(["disabled"])
         self.app.run_task(
             self.app.tr("status.loading_apps"),
             self.app.model.installed_packages,
@@ -6536,6 +6939,7 @@ class AppsPage(BasePage):
             self.tree.delete(item)
         self.packages.clear()
         if not result.ok:
+            self._registry_loaded = True
             self.summary.set(result.message or self.app.tr("apps.unavailable"))
             _replace_text(self.details, {
                 "ok": False,
@@ -6557,15 +6961,49 @@ class AppsPage(BasePage):
                 "",
                 "end",
                 iid=package,
-                values=(package, str(row.get("version", ""))),
+                values=(
+                    package,
+                    str(row.get("version", "")),
+                    self.app.tr("apps.installed"),
+                ),
             )
         self.summary.set(
             self.app.tr("apps.summary", {"count": len(self.packages)})
         )
+        self._registry_loaded = True
         _replace_text(self.details, {
             "packages": len(self.packages),
             "last_operation": self._last_result,
         })
+        self._apply_pending_activation()
+
+    def activate_package(self, component: str, panel: str = "details") -> None:
+        package = component.split(":", 1)[0].strip()
+        if not package:
+            return
+        self._pending_activation = (package, panel)
+        if self._registry_loaded:
+            self._apply_pending_activation()
+
+    def _apply_pending_activation(self) -> None:
+        if self._pending_activation is None:
+            return
+        package, panel = self._pending_activation
+        if package not in self.packages:
+            if self._registry_loaded:
+                self.app.set_status(
+                    self.app.tr("apps.package_not_found", {"package": package}),
+                    error=True,
+                )
+                self._pending_activation = None
+            return
+        self._pending_activation = None
+        self.tree.selection_set(package)
+        self.tree.focus(package)
+        self.tree.see(package)
+        self._selection_changed()
+        if panel == "uninstall":
+            self.app.root.after_idle(self.uninstall)
 
     def _selected_package(self) -> dict[str, Any] | None:
         selection = self.tree.selection()
@@ -6577,8 +7015,10 @@ class AppsPage(BasePage):
         selected = self._selected_package()
         if selected is None:
             self.uninstall_button.state(["disabled"])
+            self.rollback_button.state(["disabled"])
             return
         self.uninstall_button.state(["!disabled"])
+        self.rollback_button.state(["!disabled"])
         _replace_text(self.details, {
             "selected": selected,
             "last_operation": self._last_result,
@@ -6615,6 +7055,54 @@ class AppsPage(BasePage):
             lambda: self.app.model.request_uninstall(package),
             lambda result: self._uninstall_result(package, result),
         )
+
+    def rollback(self) -> None:
+        selected = self._selected_package()
+        if selected is None:
+            messagebox.showerror(
+                self.app.tr("updates.rollback_title"),
+                self.app.tr("apps.select_first"),
+                parent=self.app.root,
+            )
+            return
+        package = str(selected["package"])
+        if not messagebox.askyesno(
+            self.app.tr("updates.rollback_title"),
+            self.app.tr("updates.rollback_prompt", {"package": package}),
+            parent=self.app.root,
+        ):
+            return
+        self.rollback_button.state(["disabled"])
+        self.app.run_task(
+            self.app.tr("status.waiting_rollback"),
+            lambda: self.app.model.request_rollback(package),
+            lambda result: self._rollback_result(package, result),
+        )
+
+    def _rollback_result(self, package: str, result: OperationResult) -> bool:
+        self._last_result = {
+            "request": "rollback",
+            "package": package,
+            "terminal": True,
+            "ok": result.ok,
+            "response": result.data,
+            **(
+                {
+                    "error": {
+                        "code": result.code,
+                        "message": result.message,
+                    }
+                }
+                if not result.ok
+                else {}
+            ),
+        }
+        _replace_text(self.details, self._last_result)
+        if result.ok:
+            self.refresh()
+        else:
+            self.rollback_button.state(["!disabled"])
+        return True
 
     def _uninstall_result(self, package: str, result: OperationResult) -> bool:
         record: dict[str, Any] = {
@@ -6678,6 +7166,12 @@ class UpdatesPage(BasePage):
             form.columnconfigure(1, weight=2)
         actions = ttk.Frame(container, style="Panel.TFrame")
         actions.pack(fill="x", pady=8)
+        if app.mode == "software-center":
+            ttk.Button(
+                actions,
+                text=app.tr("nav.apps"),
+                command=lambda: app.show_page("apps"),
+            ).pack(side="left", padx=(0, 6))
         ttk.Button(actions, text=app.tr("common.check"), command=lambda: self.request("check")).pack(side="left")
         ttk.Button(actions, text=app.tr("common.apply"), style="Accent.TButton", command=lambda: self.request("apply")).pack(
             side="left", padx=6

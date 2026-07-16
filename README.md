@@ -1,5 +1,34 @@
 # MSYS Settings
 
+## 0.2.27 software center, removable storage, and calibration entry
+
+The package now exposes `org.msys.settings:software-center` as a separately
+launchable system application with X11 identity `org.msys.software-center`.
+It reuses the existing Apps and Updates pages: package registry, uninstall,
+rollback, update check, and update apply still call only the typed install and
+update agents. No installer or registry logic is copied into the frontend.
+
+Settings adds a compact, touch-scrollable Storage page backed only by
+`role:storage.get_state/refresh/set_config/mount/unmount`. It shows the real
+automatic-mount policy, managed mount root, volume state, mount point and
+provider errors. The Home page also discovers and starts the optional
+`org.msys.touch-calibration:touch-calibration` component through Core; when it
+is not installed the card remains visibly unavailable.
+
+The existing Appearance role contract also exposes `wallpaper_path`,
+`grid_columns`, `grid_rows`, and `acrylic`. Wallpaper files are absolute,
+pre-scaled PPM assets, and acrylic uses a static pre-blurred surface so the
+Shell never spends CPU or SPI bandwidth on real-time blur.
+
+Launcher package details use this activation contract:
+
+```json
+{"component":"org.msys.settings:software-center","activation":{"action":"software-center","name":"details","component":"org.example.app:main"}}
+```
+
+Use `name: "uninstall"` for the same preselection followed by the Software
+Center's normal confirmation, or `apps` / `updates` to open those root pages.
+
 ## 0.2.26 CPU display diagnostics
 
 The configurable CH347 on-screen diagnostics now includes a prominent,
@@ -227,6 +256,7 @@ C/C++ 或其他框架重写界面而不改变系统接口。
 | Display | `role:window-manager.get_layout/set_layout` + `msys.core.list_roles` + HAL display domain |
 | Desktop appearance | `role:launcher.get_preferences/set_preferences` |
 | Audio | `role:audio-manager.get_state/select_output/set_volume/set_muted/configure_player` |
+| Storage | `role:storage.get_state/refresh/set_config/mount/unmount` |
 | Apps | `role:install-agent.registry/uninstall` typed RPC |
 | Roles | `msys.core.list_roles/select_role/reset_role` |
 | HAL | `interface:org.msys.hal.manager.v1.inventory/get_state/set_state/list_providers/select_provider/reset_provider` |

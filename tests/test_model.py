@@ -709,12 +709,25 @@ class SettingsModelTests(unittest.TestCase):
         read = self.model.desktop_preferences()
         self.assertTrue(read.ok)
         self.assertEqual(read.data["preferences"]["layout"], "desktop")
+        self.assertEqual(read.data["preferences"]["grid_columns"], 0)
         changed = self.model.set_desktop_preferences(
-            "mobile", "#abcdef", "#123456", "72", False, "component"
+            "mobile",
+            "#abcdef",
+            "#123456",
+            "72",
+            False,
+            "component",
+            "/media/msys/wallpaper.ppm",
+            "4",
+            "5",
+            True,
         )
         self.assertTrue(changed.ok)
         self.assertEqual(changed.data["preferences"]["wallpaper_color"], "#ABCDEF")
         self.assertEqual(changed.data["preferences"]["icon_size"], 72)
+        self.assertEqual(changed.data["preferences"]["wallpaper_path"], "/media/msys/wallpaper.ppm")
+        self.assertEqual(changed.data["preferences"]["grid_columns"], 4)
+        self.assertTrue(changed.data["preferences"]["acrylic"])
         invalid = self.model.set_desktop_preferences(
             "tablet", "red", "#123456", 10, True, "recent"
         )
@@ -969,6 +982,7 @@ class NormalizationTests(unittest.TestCase):
         })
         self.assertEqual(preferences["wallpaper_color"], "#ABCDEF")
         self.assertEqual(preferences["icon_size"], 80)
+        self.assertEqual(preferences["wallpaper_path"], "")
         self.assertEqual(
             validate_desktop_preferences({**preferences, "layout": "profile"})["layout"],
             "profile",

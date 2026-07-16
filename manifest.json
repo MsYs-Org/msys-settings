@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.2.26",
+    "version": "0.2.27",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -59,6 +59,7 @@
         "mipc.call:role:install-agent",
         "mipc.call:role:input-method",
         "mipc.call:role:audio-manager",
+        "mipc.call:role:storage",
         "mipc.call:org.msys.hal.manager.v1",
         "mipc.call:org.msys.hal.ch347-control.v1",
         "mipc.event:subscribe:msys.activation",
@@ -71,7 +72,8 @@
         "mipc.event:subscribe:msys.install.package_changed",
         "mipc.event:subscribe:msys.install.error",
         "mipc.event:subscribe:msys.display.migration",
-        "mipc.event:subscribe:msys.audio.changed"
+        "mipc.event:subscribe:msys.audio.changed",
+        "mipc.event:subscribe:msys.hal.storage.changed"
       ],
       "isolation": "baseline",
       "windowing": {
@@ -130,6 +132,11 @@
           },
           {
             "action": "settings-panel",
+            "name": "storage",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
             "name": "roles",
             "priority": 100
           },
@@ -150,6 +157,93 @@
           }
         ]
       }
+    },
+    {
+      "id": "software-center",
+      "name": "Software Center",
+      "runtime": "tk",
+      "exec": [
+        "python",
+        "@package/files/app/main.py"
+      ],
+      "lifecycle": "manual",
+      "restart": "never",
+      "env": {
+        "PYTHONUNBUFFERED": "1",
+        "MSYS_SETTINGS_MODE": "software-center"
+      },
+      "readiness": {
+        "mode": "mipc-ready",
+        "timeout_ms": 8000
+      },
+      "provides": [
+        {
+          "interface": "org.msys.application-navigation.v1",
+          "exclusive": false,
+          "priority": 100
+        }
+      ],
+      "permissions": [
+        "display:x11",
+        "mipc.call:msys.core",
+        "mipc.call:role:update-agent",
+        "mipc.call:role:install-agent",
+        "mipc.event:subscribe:msys.activation",
+        "mipc.event:subscribe:msys.update.checked",
+        "mipc.event:subscribe:msys.update.applied",
+        "mipc.event:subscribe:msys.update.error",
+        "mipc.event:subscribe:msys.install.package_changed",
+        "mipc.event:subscribe:msys.install.error"
+      ],
+      "isolation": "baseline",
+      "windowing": {
+        "system": "x11",
+        "display": "inherit",
+        "mode": "window",
+        "title": "MSYS Software Center",
+        "identity": {
+          "app_id": "org.msys.software-center",
+          "x11_wm_class": "org.msys.software-center",
+          "x11_wm_instance": "software-center"
+        }
+      },
+      "activation": {
+        "launchable": true,
+        "intents": [
+          {
+            "action": "software-center",
+            "name": "apps",
+            "priority": 100
+          },
+          {
+            "action": "software-center",
+            "name": "updates",
+            "priority": 100
+          },
+          {
+            "action": "software-center",
+            "name": "details",
+            "priority": 100
+          },
+          {
+            "action": "software-center",
+            "name": "uninstall",
+            "priority": 100
+          }
+        ]
+      },
+      "x-msys-i18n": {
+        "catalog": "files/share/i18n/catalog.json",
+        "name_key": "software_center.name",
+        "summary_key": "software_center.summary"
+      },
+      "icons": [
+        {
+          "size": 32,
+          "mime": "image/x-portable-pixmap",
+          "path": "files/share/icons/settings.ppm"
+        }
+      ]
     }
   ]
 }

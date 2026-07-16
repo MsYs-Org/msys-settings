@@ -128,6 +128,27 @@ class SettingsClientTests(unittest.TestCase):
             all(call[3] == {"timeout": 45.0} for call in self.rpc.calls[1:])
         )
 
+    def test_storage_uses_only_the_replaceable_storage_role(self) -> None:
+        self.client.storage_get_state()
+        self.client.storage_refresh()
+        self.client.storage_set_config(True)
+        self.client.storage_mount("storage:sda1", read_only=True)
+        self.client.storage_unmount("storage:sda1")
+        self.assertEqual(
+            [call[:2] for call in self.rpc.calls],
+            [
+                ("role:storage", "get_state"),
+                ("role:storage", "refresh"),
+                ("role:storage", "set_config"),
+                ("role:storage", "mount"),
+                ("role:storage", "unmount"),
+            ],
+        )
+        self.assertEqual(
+            self.rpc.calls[3][2],
+            {"volume_id": "storage:sda1", "read_only": True},
+        )
+
     def test_bluetooth_audio_lifecycle_uses_one_role_and_bounded_timeouts(self) -> None:
         self.client.audio_list_devices(refresh=True)
         self.client.audio_scan(timeout_ms=15000)

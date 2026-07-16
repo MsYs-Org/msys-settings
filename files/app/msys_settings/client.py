@@ -19,6 +19,7 @@ UPDATE_AGENT = "role:update-agent"
 INSTALL_AGENT = "role:install-agent"
 INPUT_METHOD = "role:input-method"
 AUDIO_MANAGER = "role:audio-manager"
+STORAGE_MANAGER = "role:storage"
 AUDIO_READ_TIMEOUT = 20.0
 AUDIO_WRITE_TIMEOUT = 45.0
 
@@ -46,6 +47,14 @@ class SettingsClient:
     def list_components(self) -> dict[str, Any]:
         return self.rpc.call(
             "msys.core", "list_components", {}, idempotent=True
+        )
+
+    def start_component(self, component: str) -> dict[str, Any]:
+        return self.rpc.call(
+            "msys.core",
+            "start",
+            {"component": component},
+            timeout=12.0,
         )
 
     def isolation_capabilities(self) -> dict[str, Any]:
@@ -180,6 +189,52 @@ class SettingsClient:
             "configure_player",
             payload,
             timeout=AUDIO_WRITE_TIMEOUT,
+        )
+
+    def storage_get_state(self) -> dict[str, Any]:
+        return self.rpc.call(
+            STORAGE_MANAGER,
+            "get_state",
+            {},
+            timeout=8.0,
+            idempotent=True,
+        )
+
+    def storage_refresh(self) -> dict[str, Any]:
+        return self.rpc.call(
+            STORAGE_MANAGER,
+            "refresh",
+            {},
+            timeout=20.0,
+        )
+
+    def storage_set_config(self, auto_mount: bool) -> dict[str, Any]:
+        return self.rpc.call(
+            STORAGE_MANAGER,
+            "set_config",
+            {"auto_mount": bool(auto_mount)},
+            timeout=20.0,
+        )
+
+    def storage_mount(
+        self,
+        volume_id: str,
+        *,
+        read_only: bool = False,
+    ) -> dict[str, Any]:
+        return self.rpc.call(
+            STORAGE_MANAGER,
+            "mount",
+            {"volume_id": volume_id, "read_only": bool(read_only)},
+            timeout=20.0,
+        )
+
+    def storage_unmount(self, volume_id: str) -> dict[str, Any]:
+        return self.rpc.call(
+            STORAGE_MANAGER,
+            "unmount",
+            {"volume_id": volume_id},
+            timeout=20.0,
         )
 
     def get_layout(self) -> dict[str, Any]:
