@@ -10,7 +10,7 @@ CPPFLAGS += -I$(UI_DIR)/include -I$(UI_DIR)/vendor/lvgl -I$(UI_DIR) \
 CFLAGS ?= -O2
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror \
 	-ffunction-sections -fdata-sections
-LDLIBS += $(UI_LIBRARY) -lX11 -lm
+LDLIBS += $(UI_LIBRARY) -lX11 -lm -ldl
 
 OBJECTS := $(BUILD_DIR)/main.o
 

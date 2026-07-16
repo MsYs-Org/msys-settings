@@ -1,6 +1,6 @@
 # MSYS Settings
 
-## 0.3.2 LVGL frontend preview
+## 0.3.3 LVGL frontend preview
 
 Settings now has an optional native LVGL provider at
 `org.msys.settings:main-lvgl`. The existing Tk component
@@ -33,9 +33,10 @@ make -j2
 make probe
 ```
 
-The build statically links the sibling `msys-ui-lvgl` runtime and its unified
-offline anti-aliased CJK provider; the installed provider has no runtime LVGL
-shared-library or font-daemon dependency. The Xvfb probe opens a real
+The build statically links the sibling `msys-ui-lvgl` runtime. Its bounded
+FreeType provider rasterizes Noto Sans CJK at 14/16/20 px with a 256-glyph LRU;
+the offline anti-aliased font remains the automatic fallback. There is no font
+daemon or package-manager dependency. The Xvfb probe opens a real
 secondary page and performs a touch drag. Missing optional Xvfb tools return
 77 rather than installing packages.
 

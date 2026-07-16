@@ -730,12 +730,21 @@ int main(int argc, char **argv)
     }
     app.runtime = msys_ui_runtime_create(&runtime_config);
     if(app.runtime == NULL) return 1;
+    (void)msys_ui_dynamic_fonts_init(NULL);
     app.policy = msys_ui_runtime_policy(app.runtime);
     app.surface = msys_ui_surface_create(app.runtime, &surface_config);
-    if(app.surface == NULL) { msys_ui_runtime_destroy(app.runtime); return 1; }
+    if(app.surface == NULL) {
+        msys_ui_dynamic_fonts_shutdown();
+        msys_ui_runtime_destroy(app.runtime);
+        return 1;
+    }
     app.theme = msys_ui_theme_create(msys_ui_surface_display(app.surface), app.policy);
-    if(app.theme == NULL) { msys_ui_runtime_destroy(app.runtime); return 1; }
-    msys_ui_theme_set_font_provider(app.theme, msys_ui_builtin_font_provider,
+    if(app.theme == NULL) {
+        msys_ui_dynamic_fonts_shutdown();
+        msys_ui_runtime_destroy(app.runtime);
+        return 1;
+    }
+    msys_ui_theme_set_font_provider(app.theme, msys_ui_font_provider,
                                     NULL, "zh-CN");
     build_page(&app);
     msys_ui_surface_show(app.surface);
@@ -752,6 +761,7 @@ int main(int argc, char **argv)
     result = event_loop(&app);
     stop_bridge(&app);
     msys_ui_theme_destroy(app.theme);
+    msys_ui_dynamic_fonts_shutdown();
     msys_ui_runtime_destroy(app.runtime);
     return result == 0 ? 0 : 1;
 }
