@@ -1,6 +1,6 @@
 # MSYS Settings
 
-## 0.2.24 live session language
+## 0.2.25 live session language
 
 The regional page now commits its language through Core's small
 `msys.session-preferences.v1` contract and listens for
