@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "msys_ui/fonts.h"
 #include "msys_ui/runtime.h"
 #include "msys_ui/theme.h"
 
@@ -17,9 +18,6 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
-
-extern const lv_font_t lv_font_source_han_sans_sc_14_cjk;
-extern const lv_font_t lv_font_source_han_sans_sc_16_cjk;
 
 enum { PANEL_WIFI, PANEL_BLUETOOTH, PANEL_AUDIO, PANEL_DISPLAY,
        PANEL_STORAGE, PANEL_REGIONAL, PANEL_APPS, PANEL_UPDATES,
@@ -74,15 +72,6 @@ static void signal_handler(int signal_number)
 {
     (void)signal_number;
     stopping = 1;
-}
-
-static const lv_font_t *font_provider(const char *locale, uint16_t size,
-                                      void *user_data)
-{
-    (void)locale;
-    (void)user_data;
-    return size >= 15U ? &lv_font_source_han_sans_sc_16_cjk
-                       : &lv_font_source_han_sans_sc_14_cjk;
 }
 
 static void copy_text(char *target, size_t capacity, const char *value)
@@ -746,7 +735,8 @@ int main(int argc, char **argv)
     if(app.surface == NULL) { msys_ui_runtime_destroy(app.runtime); return 1; }
     app.theme = msys_ui_theme_create(msys_ui_surface_display(app.surface), app.policy);
     if(app.theme == NULL) { msys_ui_runtime_destroy(app.runtime); return 1; }
-    msys_ui_theme_set_font_provider(app.theme, font_provider, NULL, "zh-CN");
+    msys_ui_theme_set_font_provider(app.theme, msys_ui_builtin_font_provider,
+                                    NULL, "zh-CN");
     build_page(&app);
     msys_ui_surface_show(app.surface);
     if(snapshot != NULL) {

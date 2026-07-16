@@ -6,15 +6,13 @@ PACKAGE_TARGET := files/bin/msys-settings-lvgl
 LICENSE_TARGET := files/share/licenses/lvgl/LICENCE.txt
 UI_LIBRARY := $(UI_DIR)/build/libmsys-ui-lvgl.a
 CPPFLAGS += -I$(UI_DIR)/include -I$(UI_DIR)/vendor/lvgl -I$(UI_DIR) \
-	-DLV_CONF_INCLUDE_SIMPLE -DLV_FONT_SOURCE_HAN_SANS_SC_14_CJK=1 \
-	-DLV_FONT_SOURCE_HAN_SANS_SC_16_CJK=1
+	-DLV_CONF_INCLUDE_SIMPLE
 CFLAGS ?= -O2
 CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror \
 	-ffunction-sections -fdata-sections
 LDLIBS += $(UI_LIBRARY) -lX11 -lm
 
-OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/font-cjk-14.o \
-	$(BUILD_DIR)/font-cjk-16.o
+OBJECTS := $(BUILD_DIR)/main.o
 
 .PHONY: all clean probe
 
@@ -25,14 +23,6 @@ $(UI_LIBRARY):
 	@$(MAKE) -C $(UI_DIR) -j2
 
 $(BUILD_DIR)/main.o: native/src/main.c $(UI_LIBRARY)
-	@mkdir -p $(@D)
-	@$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/font-cjk-14.o: $(UI_DIR)/vendor/lvgl/src/font/lv_font_source_han_sans_sc_14_cjk.c
-	@mkdir -p $(@D)
-	@$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/font-cjk-16.o: $(UI_DIR)/vendor/lvgl/src/font/lv_font_source_han_sans_sc_16_cjk.c
 	@mkdir -p $(@D)
 	@$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
