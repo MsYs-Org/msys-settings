@@ -94,6 +94,16 @@ class LvglSettingsBridgeTests(unittest.TestCase):
         self.assertIn('send_bridge(active_app, "ACTION", "settings_page", panel->id)', native)
         self.assertIn('send_bridge(active_app, "ACTION", "settings_page", "home")', native)
 
+    def test_python_bridge_closes_only_its_child_control_channel_copy(self) -> None:
+        source = (ROOT / "native/src/main.c").read_text(encoding="utf-8")
+        child = source.split("if(pid == 0) {", 1)[1].split("execlp", 1)[0]
+        parent = source.split("execlp", 1)[1].split(
+            "return app->bridge_input != NULL", 1
+        )[0]
+        self.assertIn('getenv("MSYS_CONTROL_FD")', child)
+        self.assertIn("close((int)fd)", child)
+        self.assertNotIn('getenv("MSYS_CONTROL_FD")', parent)
+
 
 if __name__ == "__main__":
     unittest.main()

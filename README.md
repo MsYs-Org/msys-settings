@@ -1,5 +1,13 @@
 # MSYS Settings
 
+## 0.5.1 supervised bridge ownership
+
+The native Settings process now keeps its inherited `MSYS_CONTROL_FD`; only
+the forked Python model bridge closes its copy before `exec`.  Version 0.5.0
+closed the descriptor in the parent after forking, so Core correctly detected
+a lost private control channel and terminated an otherwise rendered Settings
+window.  This fix changes descriptor ownership only and adds no restart loop.
+
 ## 0.5.0 production LVGL Settings
 
 `org.msys.settings:main` is now the launchable, default native LVGL frontend.

@@ -1854,6 +1854,17 @@ static int start_bridge(app_t *app, const char *python, const char *script)
         close(input_pipe[1]);
         close(output_pipe[0]);
         close(output_pipe[1]);
+        /* The Python bridge is not the supervised component and must not
+         * retain the parent's private Core channel.  Close it only in this
+         * child; closing it after the fork branch disconnects the native
+         * Settings process itself and makes Core terminate a healthy UI. */
+        control_fd = getenv("MSYS_CONTROL_FD");
+        if(control_fd != NULL) {
+            char *end = NULL;
+            long fd = strtol(control_fd, &end, 10);
+            if(end != control_fd && *end == '\0' && fd >= 0 && fd <= INT32_MAX)
+                close((int)fd);
+        }
         execlp(python, python, "-B", script, (char *)NULL);
         _exit(127);
     }
@@ -1865,13 +1876,6 @@ static int start_bridge(app_t *app, const char *python, const char *script)
     (void)fcntl(app->bridge_output, F_SETFL,
                 fcntl(app->bridge_output, F_GETFL, 0) | O_NONBLOCK);
     if(app->bridge_input != NULL) setvbuf(app->bridge_input, NULL, _IOLBF, 0U);
-    control_fd = getenv("MSYS_CONTROL_FD");
-    if(control_fd != NULL) {
-        char *end = NULL;
-        long fd = strtol(control_fd, &end, 10);
-        if(end != control_fd && *end == '\0' && fd >= 0 && fd <= INT32_MAX)
-            close((int)fd);
-    }
     return app->bridge_input != NULL ? 0 : -1;
 }
 
