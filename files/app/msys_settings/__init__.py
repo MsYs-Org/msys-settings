@@ -9,4 +9,4 @@ from .client import SettingsClient
 from .model import OperationResult, SettingsModel
 
 __all__ = ["OperationResult", "SettingsClient", "SettingsModel"]
-__version__ = "0.5.1"
+__version__ = "0.5.2"

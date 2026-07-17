@@ -94,15 +94,26 @@ class LvglSettingsBridgeTests(unittest.TestCase):
         self.assertIn('send_bridge(active_app, "ACTION", "settings_page", panel->id)', native)
         self.assertIn('send_bridge(active_app, "ACTION", "settings_page", "home")', native)
 
-    def test_python_bridge_closes_only_its_child_control_channel_copy(self) -> None:
+    def test_python_bridge_keeps_control_channel_and_renderer_closes_parent_copy(self) -> None:
         source = (ROOT / "native/src/main.c").read_text(encoding="utf-8")
         child = source.split("if(pid == 0) {", 1)[1].split("execlp", 1)[0]
         parent = source.split("execlp", 1)[1].split(
             "return app->bridge_input != NULL", 1
         )[0]
-        self.assertIn('getenv("MSYS_CONTROL_FD")', child)
-        self.assertIn("close((int)fd)", child)
-        self.assertNotIn('getenv("MSYS_CONTROL_FD")', parent)
+        self.assertNotIn('getenv("MSYS_CONTROL_FD")', child)
+        self.assertIn('getenv("MSYS_CONTROL_FD")', parent)
+        self.assertIn("close((int)fd)", parent)
+
+    def test_toast_is_one_native_overlay_with_bounded_animation_timer(self) -> None:
+        source = (ROOT / "native/src/main.c").read_text(encoding="utf-8")
+        settings_xml = (ROOT / "files/share/ui/settings.xml").read_text(encoding="utf-8")
+        software_xml = (ROOT / "files/share/ui/software-center.xml").read_text(encoding="utf-8")
+        self.assertIn("static bool create_toast(app_t *app)", source)
+        self.assertIn("lv_obj_is_valid(app->toast)", source)
+        self.assertIn("app->toast_timer = lv_timer_create", source)
+        self.assertIn("lv_anim_delete(app->toast, NULL)", source)
+        self.assertNotIn('name="toast"', settings_xml)
+        self.assertNotIn('name="toast"', software_xml)
 
 
 if __name__ == "__main__":

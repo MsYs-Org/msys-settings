@@ -110,6 +110,7 @@ typedef struct {
     lv_obj_t *dynamic_list;
     lv_obj_t *toast;
     lv_obj_t *toast_label;
+    lv_timer_t *toast_timer;
     lv_obj_t *status_label;
     lv_obj_t *appearance_page;
     lv_obj_t *appearance_status;
@@ -292,16 +293,61 @@ static void init_panels(app_t *app)
 static void hide_toast_cb(lv_timer_t *timer)
 {
     app_t *app = lv_timer_get_user_data(timer);
-    if(app != NULL && app->toast != NULL)
+    if(app != NULL) app->toast_timer = NULL;
+    if(app != NULL && app->toast != NULL && lv_obj_is_valid(app->toast))
         msys_ui_animate_toast(app->toast, app->policy, false);
     lv_timer_delete(timer);
 }
 
 static void show_toast(app_t *app, const char *message)
 {
+    if(app == NULL || app->toast == NULL || app->toast_label == NULL ||
+       !lv_obj_is_valid(app->toast) || !lv_obj_is_valid(app->toast_label)) {
+        fprintf(stderr, "settings-lvgl: toast unavailable message=%s\n",
+                message != NULL ? message : "");
+        return;
+    }
     set_label_text(app->toast_label, message);
+    lv_anim_delete(app->toast, NULL);
     msys_ui_animate_toast(app->toast, app->policy, true);
-    (void)lv_timer_create(hide_toast_cb, 1800U, app);
+    if(app->toast_timer != NULL) lv_timer_delete(app->toast_timer);
+    app->toast_timer = lv_timer_create(hide_toast_cb, 1800U, app);
+}
+
+static bool create_toast(app_t *app)
+{
+    lv_obj_t *screen;
+    if(app == NULL || app->surface == NULL || app->theme == NULL) return false;
+    screen = msys_ui_surface_screen(app->surface);
+    if(screen == NULL) return false;
+    app->toast = lv_obj_create(screen);
+    if(app->toast == NULL) return false;
+    lv_obj_set_width(app->toast, 256);
+    lv_obj_set_height(app->toast, LV_SIZE_CONTENT);
+    lv_obj_align(app->toast, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_add_flag(app->toast, LV_OBJ_FLAG_FLOATING | LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_remove_flag(app->toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_color(app->toast, lv_color_hex(0x202636), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(app->toast, LV_OPA_90, LV_PART_MAIN);
+    lv_obj_set_style_radius(app->toast, 14, LV_PART_MAIN);
+    lv_obj_set_style_border_width(app->toast, 0, LV_PART_MAIN);
+    lv_obj_set_style_pad_hor(app->toast, 16, LV_PART_MAIN);
+    lv_obj_set_style_pad_ver(app->toast, 10, LV_PART_MAIN);
+    lv_obj_set_style_translate_y(app->toast, -48, LV_PART_MAIN);
+    lv_obj_set_style_opa(app->toast, LV_OPA_TRANSP, LV_PART_MAIN);
+    app->toast_label = lv_label_create(app->toast);
+    if(app->toast_label == NULL) return false;
+    lv_obj_set_width(app->toast_label, LV_PCT(100));
+    lv_obj_set_height(app->toast_label, LV_SIZE_CONTENT);
+    lv_label_set_long_mode(app->toast_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_style_text_align(app->toast_label, LV_TEXT_ALIGN_CENTER,
+                                LV_PART_MAIN);
+    lv_obj_set_style_text_font(app->toast_label,
+                               msys_ui_theme_font(app->theme, 12),
+                               LV_PART_MAIN);
+    lv_obj_set_style_text_color(app->toast_label, lv_color_hex(0xffffff),
+                                LV_PART_MAIN);
+    return true;
 }
 
 static void update_visible(app_t *app);
@@ -977,6 +1023,8 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
 static void wire_document(app_t *app)
 {
     int index;
+    if(app->toast == NULL && !create_toast(app))
+        fprintf(stderr, "settings-lvgl: toast-create-failed\n");
     if(app->mode == APP_MODE_SOFTWARE_CENTER) {
         app->software_apps_page = ui_object(app, "software_apps_page");
         app->software_updates_page = ui_object(app, "software_updates_page");
@@ -995,8 +1043,6 @@ static void wire_document(app_t *app)
         app->software_apply_button = ui_object(app, "software_apply_button");
         app->software_uninstall_button = ui_object(app, "software_uninstall_button");
         app->software_rollback_button = ui_object(app, "software_rollback_button");
-        app->toast = ui_object(app, "toast");
-        app->toast_label = ui_object(app, "toast_text");
         if(app->software_package_list != NULL) {
             lv_obj_set_scroll_dir(app->software_package_list, LV_DIR_VER);
             lv_obj_set_scrollbar_mode(app->software_package_list,
@@ -1062,8 +1108,6 @@ static void wire_document(app_t *app)
         app->choice_labels[index] = ui_object(app, name);
     }
     app->calibration_button = ui_object(app, "calibration_button");
-    app->toast = ui_object(app, "toast");
-    app->toast_label = ui_object(app, "toast_text");
     for(index = 0; index < PANEL_COUNT; index++) {
         char name[64];
         lv_obj_t *title;
@@ -1854,17 +1898,6 @@ static int start_bridge(app_t *app, const char *python, const char *script)
         close(input_pipe[1]);
         close(output_pipe[0]);
         close(output_pipe[1]);
-        /* The Python bridge is not the supervised component and must not
-         * retain the parent's private Core channel.  Close it only in this
-         * child; closing it after the fork branch disconnects the native
-         * Settings process itself and makes Core terminate a healthy UI. */
-        control_fd = getenv("MSYS_CONTROL_FD");
-        if(control_fd != NULL) {
-            char *end = NULL;
-            long fd = strtol(control_fd, &end, 10);
-            if(end != control_fd && *end == '\0' && fd >= 0 && fd <= INT32_MAX)
-                close((int)fd);
-        }
         execlp(python, python, "-B", script, (char *)NULL);
         _exit(127);
     }
@@ -1876,6 +1909,13 @@ static int start_bridge(app_t *app, const char *python, const char *script)
     (void)fcntl(app->bridge_output, F_SETFL,
                 fcntl(app->bridge_output, F_GETFL, 0) | O_NONBLOCK);
     if(app->bridge_input != NULL) setvbuf(app->bridge_input, NULL, _IOLBF, 0U);
+    control_fd = getenv("MSYS_CONTROL_FD");
+    if(control_fd != NULL) {
+        char *end = NULL;
+        long fd = strtol(control_fd, &end, 10);
+        if(end != control_fd && *end == '\0' && fd >= 0 && fd <= INT32_MAX)
+            close((int)fd);
+    }
     return app->bridge_input != NULL ? 0 : -1;
 }
 

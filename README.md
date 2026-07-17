@@ -1,12 +1,15 @@
 # MSYS Settings
 
-## 0.5.1 supervised bridge ownership
+## 0.5.2 bounded native toast overlay
 
-The native Settings process now keeps its inherited `MSYS_CONTROL_FD`; only
-the forked Python model bridge closes its copy before `exec`.  Version 0.5.0
-closed the descriptor in the parent after forking, so Core correctly detected
-a lost private control channel and terminated an otherwise rendered Settings
-window.  This fix changes descriptor ownership only and adds no restart loop.
+Settings and Software Center now own one persistent C/LVGL toast overlay above
+the parsed document.  Repeated messages cancel the previous finite animation
+and re-arm one hide timer; missing/invalid objects fail safely instead of
+passing a null object into LVGL.  This fixes the native crash observed when a
+secondary-page action tried to animate the XML tail object that the target
+LVGL XML builder did not instantiate.  The Python bridge remains the mIPC
+control-channel owner, while the renderer closes only its parent descriptor
+copy after `fork`; there is no restart loop or idle timer.
 
 ## 0.5.0 production LVGL Settings
 
