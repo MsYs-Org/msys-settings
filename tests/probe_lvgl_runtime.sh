@@ -24,7 +24,7 @@ trap cleanup EXIT INT TERM
 
 sleep 0.2
 DISPLAY="$display" ./files/bin/msys-settings-lvgl \
-    --snapshot tests/lvgl_snapshot.txt --run-ms 6000 \
+    --snapshot tests/lvgl_snapshot.txt --run-ms 12000 \
     >"$tmp/stdout.log" 2>"$tmp/stderr.log" &
 app_pid=$!
 
@@ -42,7 +42,7 @@ done
 identity=$(DISPLAY="$display" xprop -id "$window" \
     _MSYS_APP_ID _MSYS_COMPONENT_ID _MSYS_WINDOW_ROLE)
 printf '%s\n' "$identity" | grep -q 'org.msys.settings'
-printf '%s\n' "$identity" | grep -q 'org.msys.settings:main-lvgl'
+printf '%s\n' "$identity" | grep -q 'org.msys.settings:main'
 
 # First two-column card is Wi-Fi. A 60-line Xlib helper sends ordinary core
 # pointer XEvents, so the probe does not install or require xdotool/XTest.

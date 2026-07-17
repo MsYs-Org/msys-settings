@@ -22,11 +22,13 @@
 #include <unistd.h>
 
 enum { PANEL_WIFI, PANEL_BLUETOOTH, PANEL_AUDIO, PANEL_DISPLAY,
-       PANEL_APPEARANCE, PANEL_STORAGE, PANEL_REGIONAL, PANEL_APPS, PANEL_UPDATES,
+       PANEL_APPEARANCE, PANEL_INPUT, PANEL_STORAGE, PANEL_REGIONAL,
+       PANEL_APPS, PANEL_UPDATES, PANEL_HAL, PANEL_DEVELOPER,
        PANEL_CALIBRATION, PANEL_SYSTEM, PANEL_COUNT };
 
 enum { APP_MODE_SETTINGS, APP_MODE_SOFTWARE_CENTER };
 enum { SOFTWARE_MAX_PACKAGES = 96 };
+enum { SETTINGS_MAX_ITEMS = 64 };
 
 typedef struct {
     const char *id;
@@ -45,6 +47,12 @@ typedef struct {
     char version[80];
     char path[320];
 } software_package_t;
+
+typedef struct {
+    char id[160];
+    char label[192];
+    char meta[192];
+} setting_item_t;
 
 typedef struct {
     char layout[16];
@@ -83,6 +91,23 @@ typedef struct {
     lv_obj_t *toggle_row;
     lv_obj_t *calibration_button;
     lv_obj_t *toggle;
+    lv_obj_t *action_primary;
+    lv_obj_t *action_primary_label;
+    lv_obj_t *action_secondary;
+    lv_obj_t *action_secondary_label;
+    lv_obj_t *choice_row;
+    lv_obj_t *choice_buttons[4];
+    lv_obj_t *choice_labels[4];
+    lv_obj_t *adjust_row;
+    lv_obj_t *adjust_label;
+    lv_obj_t *adjust_value;
+    lv_obj_t *input_card;
+    lv_obj_t *input_label;
+    lv_obj_t *input_value;
+    lv_obj_t *input_secret;
+    lv_obj_t *input_apply;
+    lv_obj_t *input_apply_label;
+    lv_obj_t *dynamic_list;
     lv_obj_t *toast;
     lv_obj_t *toast_label;
     lv_obj_t *status_label;
@@ -101,6 +126,20 @@ typedef struct {
     desktop_state_t desktop;
     bool applying_snapshot;
     bool snapshot_changed;
+    int audio_volume;
+    int developer_fps;
+    bool developer_debug;
+    bool developer_cursor;
+    bool input_visible;
+    bool physical_rotation_writable;
+    bool hal_mutable;
+    char regional_language[16];
+    char regional_timezone[64];
+    setting_item_t items[SETTINGS_MAX_ITEMS];
+    size_t item_count;
+    bool items_changed;
+    char items_panel[32];
+    char selected_item[160];
     char status[192];
     char line_buffer[8192];
     size_t line_used;
@@ -203,10 +242,13 @@ static void init_panels(app_t *app)
         {.id="audio", .title="音频", .note="输出、音量与播放器", .symbol=LV_SYMBOL_AUDIO},
         {.id="display", .title="显示", .note="布局、方向与屏幕", .symbol=LV_SYMBOL_IMAGE},
         {.id="appearance", .title="桌面", .note="Launcher 布局、图标与动效", .symbol=LV_SYMBOL_HOME},
+        {.id="input", .title="输入法", .note="悬浮触摸键盘与焦点行为", .symbol=LV_SYMBOL_KEYBOARD},
         {.id="storage", .title="存储", .note="U 盘、TF 卡与自动挂载", .symbol=LV_SYMBOL_DRIVE},
         {.id="regional", .title="语言和时间", .note="语言、时区与格式", .symbol=LV_SYMBOL_GPS},
         {.id="apps", .title="应用", .note="已安装软件与卸载", .symbol=LV_SYMBOL_LIST},
         {.id="updates", .title="更新", .note="签名更新、恢复与回退", .symbol=LV_SYMBOL_REFRESH},
+        {.id="hal", .title="硬件抽象", .note="设备、能力与提供者", .symbol=LV_SYMBOL_EYE_OPEN},
+        {.id="developer", .title="开发者选项", .note="FPS、脏区与触摸调试", .symbol=LV_SYMBOL_SETTINGS},
         {.id="calibration", .title="触摸校准", .note="校准触摸坐标", .symbol=LV_SYMBOL_EDIT},
         {.id="system", .title="系统", .note="组件、输入与运行状态", .symbol=LV_SYMBOL_SETTINGS},
     };
@@ -232,6 +274,10 @@ static void init_panels(app_t *app)
     app->desktop.folders_enabled = true;
     app->desktop.large_folders_enabled = true;
     app->desktop.animations_enabled = true;
+    app->audio_volume = 50;
+    app->developer_fps = 60;
+    copy_text(app->regional_language, sizeof(app->regional_language), "system");
+    copy_text(app->regional_timezone, sizeof(app->regional_timezone), "UTC");
     app->software_available = true;
     app->selected_package = -1;
     copy_text(app->software_status, sizeof(app->software_status),
@@ -259,6 +305,7 @@ static void show_toast(app_t *app, const char *message)
 }
 
 static void update_visible(app_t *app);
+static int clamp_integer(int value, int minimum, int maximum);
 
 static void send_bridge(app_t *app, const char *command, const char *name,
                         const char *value)
@@ -280,6 +327,7 @@ static const char *toggle_action(const panel_t *panel)
     if(strcmp(panel->id, "bluetooth") == 0) return "bluetooth_toggle";
     if(strcmp(panel->id, "storage") == 0) return "storage_toggle";
     if(strcmp(panel->id, "audio") == 0) return "audio_toggle";
+    if(strcmp(panel->id, "input") == 0) return "input_toggle";
     return NULL;
 }
 
@@ -287,6 +335,7 @@ static const char *toggle_label(const panel_t *panel)
 {
     if(strcmp(panel->id, "storage") == 0) return "自动挂载";
     if(strcmp(panel->id, "audio") == 0) return "静音";
+    if(strcmp(panel->id, "input") == 0) return "显示触摸键盘";
     return "启用";
 }
 
@@ -318,6 +367,8 @@ static void xml_navigate_event(lv_event_t *event)
     active_app->active_panel = (int)(panel - active_app->panels);
     fprintf(stderr, "settings-lvgl: page=%s\n", panel->id);
     update_visible(active_app);
+    send_bridge(active_app, "REFRESH", panel->id, "");
+    send_bridge(active_app, "ACTION", "settings_page", panel->id);
     if(active_app->detail_title != NULL)
         msys_ui_animate_opening(active_app->detail_title, active_app->policy);
 }
@@ -329,6 +380,7 @@ static void xml_back_event(lv_event_t *event)
     active_app->active_panel = -1;
     fprintf(stderr, "settings-lvgl: page=home\n");
     update_visible(active_app);
+    send_bridge(active_app, "ACTION", "settings_page", "home");
 }
 
 static void xml_toggle_event(lv_event_t *event)
@@ -363,6 +415,149 @@ static void xml_calibration_event(lv_event_t *event)
     if(active_app == NULL) return;
     send_bridge(active_app, "ACTION", "calibration_start", "1");
     show_toast(active_app, "正在启动触摸校准…");
+    (void)event;
+}
+
+static void panel_primary_event(lv_event_t *event)
+{
+    const char *action = NULL;
+    if(active_app == NULL || active_app->active_panel < 0) return;
+    switch(active_app->active_panel) {
+    case PANEL_WIFI: action = "wifi_scan"; break;
+    case PANEL_BLUETOOTH: action = "bluetooth_scan"; break;
+    case PANEL_AUDIO: action = "audio_output"; break;
+    case PANEL_STORAGE: action = "storage_refresh"; break;
+    case PANEL_APPS: action = "open_software"; break;
+    case PANEL_UPDATES: action = "open_updates"; break;
+    case PANEL_DEVELOPER: action = "developer_debug_toggle"; break;
+    default: break;
+    }
+    if(action != NULL) {
+        const char *value = active_app->active_panel == PANEL_AUDIO
+                                ? active_app->selected_item : "1";
+        send_bridge(active_app, "ACTION", action, value);
+        show_toast(active_app, "正在执行…");
+    }
+    (void)event;
+}
+
+static void panel_secondary_event(lv_event_t *event)
+{
+    const char *action = NULL;
+    if(active_app == NULL || active_app->active_panel < 0) return;
+    switch(active_app->active_panel) {
+    case PANEL_WIFI: action = "wifi_disconnect"; break;
+    case PANEL_DEVELOPER: action = "developer_cursor_toggle"; break;
+    default: break;
+    }
+    if(action != NULL) {
+        const char *value = "1";
+        send_bridge(active_app, "ACTION", action, value);
+        show_toast(active_app, "正在执行…");
+    }
+    (void)event;
+}
+
+static void panel_choice_event(lv_event_t *event)
+{
+    const char *choice_text = lv_event_get_user_data(event);
+    int choice = choice_text != NULL ? atoi(choice_text) : -1;
+    const char *action = NULL;
+    const char *value = NULL;
+    if(active_app == NULL || active_app->active_panel < 0 ||
+       choice < 0 || choice > 3) return;
+    if(active_app->active_panel == PANEL_DISPLAY) {
+        static const char *const orientations[] = {
+            "normal", "right", "inverted", "left"
+        };
+        action = "physical_rotation";
+        value = orientations[choice];
+    }
+    else if(active_app->active_panel == PANEL_REGIONAL) {
+        static const char *const languages[] = {
+            "system", "zh-CN", "en-US", "system"
+        };
+        action = "regional_language";
+        value = languages[choice];
+    }
+    else if(active_app->active_panel == PANEL_BLUETOOTH) {
+        static const char *const actions[] = {
+            "bluetooth_pair", "bluetooth_connect",
+            "bluetooth_disconnect", "bluetooth_forget"
+        };
+        action = actions[choice];
+        value = active_app->selected_item;
+    }
+    else if(active_app->active_panel == PANEL_WIFI) {
+        static const char *const actions[] = {"wifi_connect", "wifi_forget", NULL, NULL};
+        static char request[384];
+        action = actions[choice];
+        if(action != NULL) {
+            const char *password = active_app->input_secret != NULL
+                                       ? lv_textarea_get_text(active_app->input_secret) : "";
+            (void)snprintf(request, sizeof(request), "%s\x1f%s",
+                           active_app->selected_item, password);
+            value = request;
+        }
+    }
+    else if(active_app->active_panel == PANEL_STORAGE) {
+        static const char *const actions[] = {"storage_mount", "storage_unmount", NULL, NULL};
+        action = actions[choice];
+        value = active_app->selected_item;
+    }
+    else if(active_app->active_panel == PANEL_HAL) {
+        static const char *const actions[] = {"hal_select", "hal_reset", NULL, NULL};
+        action = actions[choice];
+        value = active_app->selected_item;
+    }
+    if(action != NULL && value != NULL) {
+        send_bridge(active_app, "ACTION", action, value);
+        show_toast(active_app, "正在应用…");
+    }
+}
+
+static void panel_adjust_event(lv_event_t *event)
+{
+    const char *delta_text = lv_event_get_user_data(event);
+    int delta = delta_text != NULL ? atoi(delta_text) : 0;
+    char value[32];
+    const char *action = NULL;
+    int next;
+    if(active_app == NULL || (delta != -1 && delta != 1)) return;
+    if(active_app->active_panel == PANEL_AUDIO) {
+        next = clamp_integer(active_app->audio_volume + delta * 5, 0, 100);
+        active_app->audio_volume = next;
+        action = "audio_volume";
+    }
+    else if(active_app->active_panel == PANEL_DEVELOPER) {
+        next = clamp_integer(active_app->developer_fps + delta * 5, 5, 60);
+        active_app->developer_fps = next;
+        action = "developer_fps";
+    }
+    else return;
+    (void)snprintf(value, sizeof(value), "%d", next);
+    send_bridge(active_app, "ACTION", action, value);
+    update_visible(active_app);
+}
+
+static void panel_input_apply_event(lv_event_t *event)
+{
+    const char *action = NULL;
+    const char *first;
+    const char *second;
+    char value[640];
+    if(active_app == NULL || active_app->input_value == NULL) return;
+    first = lv_textarea_get_text(active_app->input_value);
+    second = active_app->input_secret != NULL
+                 ? lv_textarea_get_text(active_app->input_secret) : "";
+    switch(active_app->active_panel) {
+    case PANEL_REGIONAL: action = "regional_timezone"; break;
+    default: break;
+    }
+    if(action == NULL) return;
+    (void)snprintf(value, sizeof(value), "%s\x1f%s", first, second);
+    send_bridge(active_app, "ACTION", action, value);
+    show_toast(active_app, "正在应用…");
     (void)event;
 }
 
@@ -759,6 +954,11 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
        lv_xml_register_event_cb(scope, "settings_toggle", xml_toggle_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_refresh", xml_refresh_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "settings_calibration", xml_calibration_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "panel_primary", panel_primary_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "panel_secondary", panel_secondary_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "panel_choice", panel_choice_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "panel_adjust", panel_adjust_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "panel_input_apply", panel_input_apply_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "appearance_choice", appearance_choice_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "appearance_adjust", appearance_adjust_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "appearance_toggle", appearance_toggle_event) != LV_RESULT_OK ||
@@ -839,6 +1039,28 @@ static void wire_document(app_t *app)
     app->detail_label = ui_object(app, "detail_text");
     app->toggle_row = ui_object(app, "toggle_row");
     app->toggle = ui_object(app, "panel_toggle");
+    app->action_primary = ui_object(app, "action_primary");
+    app->action_primary_label = ui_object(app, "action_primary_label");
+    app->action_secondary = ui_object(app, "action_secondary");
+    app->action_secondary_label = ui_object(app, "action_secondary_label");
+    app->choice_row = ui_object(app, "choice_row");
+    app->adjust_row = ui_object(app, "adjust_row");
+    app->adjust_label = ui_object(app, "adjust_label");
+    app->adjust_value = ui_object(app, "adjust_value");
+    app->input_card = ui_object(app, "input_card");
+    app->input_label = ui_object(app, "input_label");
+    app->input_value = ui_object(app, "input_value");
+    app->input_secret = ui_object(app, "input_secret");
+    app->input_apply = ui_object(app, "input_apply");
+    app->input_apply_label = ui_object(app, "input_apply_label");
+    app->dynamic_list = ui_object(app, "dynamic_list");
+    for(index = 0; index < 4; index++) {
+        char name[32];
+        (void)snprintf(name, sizeof(name), "choice_%d", index);
+        app->choice_buttons[index] = ui_object(app, name);
+        (void)snprintf(name, sizeof(name), "choice_%d_label", index);
+        app->choice_labels[index] = ui_object(app, name);
+    }
     app->calibration_button = ui_object(app, "calibration_button");
     app->toast = ui_object(app, "toast");
     app->toast_label = ui_object(app, "toast_text");
@@ -974,6 +1196,205 @@ static void appearance_update_visible(app_t *app)
     app->applying_snapshot = false;
 }
 
+static void set_hidden(lv_obj_t *object, bool hidden)
+{
+    if(object != NULL) lv_obj_set_flag(object, LV_OBJ_FLAG_HIDDEN, hidden);
+}
+
+static void set_choice_labels(app_t *app, const char *a, const char *b,
+                              const char *c, const char *d)
+{
+    const char *values[4] = {a, b, c, d};
+    int index;
+    for(index = 0; index < 4; index++) {
+        set_label_text(app->choice_labels[index], values[index]);
+        set_hidden(app->choice_buttons[index], values[index] == NULL || values[index][0] == '\0');
+    }
+}
+
+static void setting_item_event(lv_event_t *event)
+{
+    setting_item_t *item = lv_event_get_user_data(event);
+    lv_obj_t *current = lv_event_get_current_target(event);
+    lv_obj_t *parent;
+    uint32_t index;
+    if(active_app == NULL || item == NULL) return;
+    copy_text(active_app->selected_item, sizeof(active_app->selected_item), item->id);
+    if(active_app->input_value != NULL)
+        set_textarea_text(active_app->input_value, item->label);
+    parent = current != NULL ? lv_obj_get_parent(current) : NULL;
+    if(parent != NULL) {
+        for(index = 0U; index < lv_obj_get_child_count(parent); index++) {
+            lv_obj_t *row = lv_obj_get_child(parent, (int32_t)index);
+            lv_obj_set_style_bg_color(row, lv_color_hex(0xffffff), LV_PART_MAIN);
+            lv_obj_set_style_border_color(row, lv_color_hex(0xdfe4ee), LV_PART_MAIN);
+        }
+    }
+    if(current != NULL) {
+        lv_obj_set_style_bg_color(current, lv_color_hex(0xe7edfb), LV_PART_MAIN);
+        lv_obj_set_style_border_color(current, lv_color_hex(0x7d9fe9), LV_PART_MAIN);
+    }
+}
+
+static void render_setting_items(app_t *app)
+{
+    size_t index;
+    if(app->dynamic_list == NULL || !app->items_changed) return;
+    lv_obj_clean(app->dynamic_list);
+    for(index = 0U; index < app->item_count; index++) {
+        setting_item_t *item = &app->items[index];
+        lv_obj_t *row = lv_obj_create(app->dynamic_list);
+        lv_obj_t *text = lv_obj_create(row);
+        lv_obj_t *label = lv_label_create(text);
+        lv_obj_t *meta = lv_label_create(text);
+        lv_obj_t *marker = lv_label_create(row);
+        bool selected = strcmp(app->selected_item, item->id) == 0;
+        lv_obj_set_width(row, LV_PCT(100));
+        lv_obj_set_height(row, 62);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START,
+                              LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+        lv_obj_set_style_bg_color(row, lv_color_hex(selected ? 0xe7edfb : 0xffffff), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(row, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_border_width(row, 1, LV_PART_MAIN);
+        lv_obj_set_style_border_color(row, lv_color_hex(selected ? 0x7d9fe9 : 0xdfe4ee), LV_PART_MAIN);
+        lv_obj_set_style_radius(row, 14, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(row, 9, LV_PART_MAIN);
+        lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(row, setting_item_event, LV_EVENT_CLICKED, item);
+        lv_obj_add_event_cb(row, xml_press_event, LV_EVENT_ALL, NULL);
+        lv_obj_set_flex_grow(text, 1);
+        lv_obj_set_height(text, LV_SIZE_CONTENT);
+        lv_obj_set_flex_flow(text, LV_FLEX_FLOW_COLUMN);
+        lv_obj_set_style_bg_opa(text, LV_OPA_TRANSP, LV_PART_MAIN);
+        lv_obj_set_style_border_width(text, 0, LV_PART_MAIN);
+        lv_obj_set_style_pad_all(text, 0, LV_PART_MAIN);
+        lv_label_set_text(label, item->label);
+        lv_obj_set_width(label, LV_PCT(100));
+        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(label, msys_ui_theme_font(app->theme, 14), LV_PART_MAIN);
+        lv_obj_set_style_text_color(label, lv_color_hex(0x182033), LV_PART_MAIN);
+        lv_label_set_text(meta, item->meta);
+        lv_obj_set_width(meta, LV_PCT(100));
+        lv_label_set_long_mode(meta, LV_LABEL_LONG_DOT);
+        lv_obj_set_style_text_font(meta, msys_ui_theme_font(app->theme, 12), LV_PART_MAIN);
+        lv_obj_set_style_text_color(meta, lv_color_hex(0x667085), LV_PART_MAIN);
+        lv_label_set_text(marker, selected ? LV_SYMBOL_OK : LV_SYMBOL_RIGHT);
+        lv_obj_set_style_text_font(marker, &lv_font_montserrat_16, LV_PART_MAIN);
+        lv_obj_set_style_text_color(marker, lv_color_hex(0x356ae6), LV_PART_MAIN);
+    }
+    app->items_changed = false;
+}
+
+static void update_panel_controls(app_t *app)
+{
+    panel_t *panel = &app->panels[app->active_panel];
+    char value[48];
+    bool primary = false;
+    bool secondary = false;
+    bool choices = false;
+    bool adjustment = false;
+    bool inputs = false;
+    bool secret = false;
+    const char *primary_label = "";
+    const char *secondary_label = "";
+    const char *input_label = "";
+    const char *apply_label = "应用";
+
+    switch(app->active_panel) {
+    case PANEL_WIFI:
+        primary = secondary = choices = inputs = secret = true;
+        primary_label = "扫描网络";
+        secondary_label = "断开连接";
+        input_label = "所选网络的密码（开放/已保存网络留空）";
+        apply_label = "连接 Wi-Fi";
+        set_choice_labels(app, "连接选中网络", "忘记选中网络", "", "");
+        break;
+    case PANEL_BLUETOOTH:
+        primary = choices = true;
+        primary_label = "扫描蓝牙设备（15 秒）";
+        set_choice_labels(app, "配对", "连接", "断开", "忘记");
+        break;
+    case PANEL_AUDIO:
+        primary = adjustment = true;
+        primary_label = "使用选中的音频输出";
+        set_label_text(app->adjust_label, "播放音量");
+        (void)snprintf(value, sizeof(value), "%d%%", app->audio_volume);
+        set_label_text(app->adjust_value, value);
+        break;
+    case PANEL_DISPLAY:
+        choices = app->physical_rotation_writable;
+        set_choice_labels(app, "正常", "右转", "倒置", "左转");
+        break;
+    case PANEL_INPUT:
+        break;
+    case PANEL_STORAGE:
+        primary = choices = true;
+        primary_label = "重新扫描存储设备";
+        set_choice_labels(app, "挂载选中卷", "卸载选中卷", "", "");
+        break;
+    case PANEL_REGIONAL:
+        choices = inputs = true;
+        input_label = "时区（例如 Asia/Shanghai）";
+        apply_label = "应用时区";
+        set_choice_labels(app, "跟随系统", "简体中文", "English", "");
+        break;
+    case PANEL_APPS:
+        primary = true;
+        primary_label = "打开软件中心";
+        break;
+    case PANEL_UPDATES:
+        primary = true;
+        primary_label = "打开更新与回退";
+        break;
+    case PANEL_HAL:
+        choices = app->hal_mutable;
+        set_choice_labels(app, "使用选中提供者", "恢复该域默认", "", "");
+        break;
+    case PANEL_DEVELOPER:
+        primary = secondary = adjustment = true;
+        primary_label = app->developer_debug ? "关闭调试叠加层" : "打开调试叠加层";
+        secondary_label = app->developer_cursor ? "关闭触摸光标" : "打开触摸光标";
+        set_label_text(app->adjust_label, "捕捉上限");
+        (void)snprintf(value, sizeof(value), "%d FPS", app->developer_fps);
+        set_label_text(app->adjust_value, value);
+        break;
+    default:
+        break;
+    }
+    set_label_text(app->action_primary_label, primary_label);
+    set_label_text(app->action_secondary_label, secondary_label);
+    set_label_text(app->input_label, input_label);
+    set_label_text(app->input_apply_label, apply_label);
+    set_hidden(app->action_primary, !primary);
+    set_hidden(app->action_secondary, !secondary);
+    set_hidden(app->choice_row, !choices);
+    set_hidden(app->adjust_row, !adjustment);
+    set_hidden(app->input_card, !inputs);
+    set_hidden(app->input_secret, !secret);
+    set_hidden(app->input_value, app->active_panel == PANEL_WIFI);
+    set_hidden(app->input_apply, app->active_panel == PANEL_WIFI);
+    if(inputs && app->active_panel == PANEL_REGIONAL)
+        set_textarea_text(app->input_value, app->regional_timezone);
+    if(panel->toggle_available && app->toggle != NULL) {
+        app->applying_snapshot = true;
+        set_switch_value(app->toggle, panel->toggle_value);
+        app->applying_snapshot = false;
+    }
+    set_hidden(app->dynamic_list,
+               app->item_count == 0U || strcmp(app->items_panel, panel->id) != 0);
+    if(app->active_panel == PANEL_AUDIO)
+        software_set_disabled(app->action_primary, app->selected_item[0] == '\0');
+    if(app->active_panel == PANEL_WIFI || app->active_panel == PANEL_BLUETOOTH ||
+       app->active_panel == PANEL_STORAGE || app->active_panel == PANEL_HAL) {
+        int index;
+        for(index = 0; index < 4; index++)
+            software_set_disabled(app->choice_buttons[index],
+                                  app->selected_item[0] == '\0');
+    }
+    render_setting_items(app);
+}
+
 static void update_visible(app_t *app)
 {
     int index;
@@ -1025,6 +1446,7 @@ static void update_visible(app_t *app)
             lv_obj_remove_state(app->toggle, LV_STATE_CHECKED);
         app->applying_snapshot = false;
     }
+    update_panel_controls(app);
 }
 
 static int hex_value(char value)
@@ -1241,6 +1663,89 @@ static void apply_field(app_t *app, char *key, char *value)
     char *dot;
     panel_t *panel;
     percent_decode(value);
+    if(strcmp(key, "items.panel") == 0) {
+        copy_text(app->items_panel, sizeof(app->items_panel), value);
+        app->item_count = 0U;
+        app->selected_item[0] = '\0';
+        app->items_changed = true;
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "items.count") == 0) {
+        unsigned long count = strtoul(value, NULL, 10);
+        app->item_count = count > SETTINGS_MAX_ITEMS ? SETTINGS_MAX_ITEMS : (size_t)count;
+        app->items_changed = true;
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strncmp(key, "items.", 6U) == 0 && key[6] >= '0' && key[6] <= '9') {
+        char *end = NULL;
+        unsigned long index = strtoul(key + 6, &end, 10);
+        if(end != NULL && *end == '.' && index < SETTINGS_MAX_ITEMS) {
+            setting_item_t *item = &app->items[index];
+            const char *field = end + 1;
+            if(strcmp(field, "id") == 0) {
+                copy_text(item->id, sizeof(item->id), value);
+                if(index == 0U && app->selected_item[0] == '\0')
+                    copy_text(app->selected_item, sizeof(app->selected_item), value);
+            }
+            else if(strcmp(field, "label") == 0)
+                copy_text(item->label, sizeof(item->label), value);
+            else if(strcmp(field, "meta") == 0)
+                copy_text(item->meta, sizeof(item->meta), value);
+            else return;
+            app->items_changed = true;
+            app->snapshot_changed = true;
+        }
+        return;
+    }
+    if(strcmp(key, "audio.volume") == 0) {
+        app->audio_volume = clamp_integer(atoi(value), 0, 100);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "developer.fps") == 0) {
+        app->developer_fps = clamp_integer(atoi(value), 5, 60);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "developer.debug") == 0) {
+        app->developer_debug = parse_bool(value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "developer.cursor") == 0) {
+        app->developer_cursor = parse_bool(value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "regional.language") == 0) {
+        copy_text(app->regional_language, sizeof(app->regional_language), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "regional.timezone") == 0) {
+        copy_text(app->regional_timezone, sizeof(app->regional_timezone), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "display.physical.available") == 0) {
+        app->physical_rotation_writable = parse_bool(value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "hal.mutable") == 0) {
+        app->hal_mutable = parse_bool(value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "settings.page") == 0) {
+        panel_t *selected = panel_by_id(app, value);
+        app->active_panel = selected != NULL ? (int)(selected - app->panels) : -1;
+        app->snapshot_changed = true;
+        if(selected != NULL) send_bridge(app, "REFRESH", selected->id, "");
+        return;
+    }
     if(strncmp(key, "appearance.preference.", 22U) == 0 ||
        strcmp(key, "appearance.orientation") == 0 ||
        strcmp(key, "appearance.contract.available") == 0) {
@@ -1478,8 +1983,8 @@ int main(int argc, char **argv)
     msys_ui_surface_config_t surface_config = {
         .x=0, .y=42, .width=320, .height=396, .draw_rows=48,
         .title="MSYS 设置", .app_id="org.msys.settings",
-        .component_id="org.msys.settings:main-lvgl", .role="application",
-        .wm_instance="main-lvgl", .override_redirect=false,
+        .component_id="org.msys.settings:main", .role="application",
+        .wm_instance="main", .override_redirect=false,
     };
     const char *bridge = NULL;
     const char *python = "python";

@@ -1,5 +1,29 @@
 # MSYS Settings
 
+## 0.5.0 production LVGL Settings
+
+`org.msys.settings:main` is now the launchable, default native LVGL frontend.
+The previous Python/Tk implementation is no longer a production Settings
+component.  The light Material UI groups status cards on its root page and
+uses one touch-scrollable secondary-page contract for real Wi-Fi, Bluetooth,
+audio, physical display rotation, input method, removable storage, regional,
+software, HAL-provider and CH347 developer controls.  Device actions select
+only identifiers returned by their typed role/HAL lists; HAL domains with a
+single provider truthfully remain non-switchable.
+
+The root page reads only local regional state and the current logical layout.
+Audio, input method, Install Agent, storage, scans, provider probes and CH347
+diagnostics are loaded only after the corresponding secondary page is opened.
+There is no status polling, fixed FPS redraw or idle animation.  All opening,
+press, switch and toast animations are finite LVGL transitions and static
+pages return to zero presents after they settle.
+
+Application navigation now enters the requested `settings-panel` directly;
+Back returns to the Settings root and is unhandled at the root.  The native
+bridge also implements the existing regional provider calls and delegates all
+business mutations to `SettingsModel`, without systemd, host D-Bus or a
+distribution package manager.
+
 ## 0.4.1 dynamic LVGL Software Center
 
 `org.msys.settings:software-center` is now the launchable native C/LVGL

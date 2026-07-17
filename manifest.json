@@ -3,7 +3,7 @@
   "package": {
     "id": "org.msys.settings",
     "name": "MSYS Settings",
-    "version": "0.4.5",
+    "version": "0.5.0",
     "kind": "application",
     "vendor": "MSYS",
     "summary": "System, connectivity, audio, display, role, HAL, update, and rollback settings",
@@ -24,10 +24,17 @@
     {
       "id": "main",
       "name": "Settings",
-      "runtime": "tk",
+      "runtime": "native",
       "exec": [
-        "python",
-        "@package/files/app/main.py"
+        "@package/files/bin/msys-settings-lvgl",
+        "--bridge",
+        "@package/files/app/lvgl_bridge.py",
+        "--python",
+        "@supervisor-python",
+        "--ui",
+        "@package/files/share/ui/settings.xml",
+        "--output",
+        "spi"
       ],
       "lifecycle": "manual",
       "restart": "never",
@@ -36,7 +43,7 @@
       },
       "readiness": {
         "mode": "mipc-ready",
-        "timeout_ms": 8000
+        "timeout_ms": 12000
       },
       "provides": [
         {
@@ -160,74 +167,22 @@
             "action": "settings-panel",
             "name": "regional",
             "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "input",
+            "priority": 100
+          },
+          {
+            "action": "settings-panel",
+            "name": "developer",
+            "priority": 100
           }
         ]
       },
       "x-msys-ui-provider": {
-        "id": "tk",
-        "default": true
-      }
-    },
-    {
-      "id": "main-lvgl",
-      "name": "Settings (LVGL preview)",
-      "runtime": "native",
-      "exec": [
-        "@package/files/bin/msys-settings-lvgl",
-        "--bridge",
-        "@package/files/app/lvgl_bridge.py",
-        "--python",
-        "@supervisor-python",
-        "--ui",
-        "@package/files/share/ui/settings.xml",
-        "--output",
-        "spi"
-      ],
-      "lifecycle": "manual",
-      "restart": "never",
-      "readiness": {
-        "mode": "mipc-ready",
-        "timeout_ms": 12000
-      },
-      "provides": [
-        {
-          "interface": "org.msys.settings.frontend.v1",
-          "exclusive": false,
-          "priority": 90
-        }
-      ],
-      "permissions": [
-        "display:x11",
-        "mipc.call:msys.core",
-        "mipc.call:role:window-manager",
-        "mipc.call:role:launcher",
-        "mipc.call:role:input-method",
-        "mipc.call:role:audio-manager",
-        "mipc.call:role:storage",
-        "mipc.call:role:install-agent",
-        "mipc.call:org.msys.hal.manager.v1",
-        "mipc.event:subscribe:msys.shell.preferences.changed",
-        "mipc.event:subscribe:msys.layout.changed"
-      ],
-      "isolation": "baseline",
-      "windowing": {
-        "system": "x11",
-        "display": "inherit",
-        "mode": "window",
-        "title": "MSYS 设置",
-        "identity": {
-          "app_id": "org.msys.settings",
-          "x11_wm_class": "org.msys.settings",
-          "x11_wm_instance": "main-lvgl"
-        }
-      },
-      "activation": {
-        "launchable": false
-      },
-      "x-msys-ui-provider": {
         "id": "lvgl",
-        "fallback_component": "org.msys.settings:main",
-        "phase": "preview"
+        "default": true
       }
     },
     {

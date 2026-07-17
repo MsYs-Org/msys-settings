@@ -20,7 +20,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.4.5")
+        self.assertEqual(__version__, "0.5.0")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -45,7 +45,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(project_version.group(1), __version__)
         self.assertIn('requires-python = ">=3.10"', project_text)
         component = manifest["components"][0]
-        self.assertEqual(component["runtime"], "tk")
+        self.assertEqual(component["runtime"], "native")
         self.assertEqual(component["readiness"]["mode"], "mipc-ready")
         self.assertIn(
             {
@@ -89,6 +89,8 @@ class ManifestTests(unittest.TestCase):
                 "hal",
                 "updates",
                 "regional",
+                "input",
+                "developer",
             },
         )
         permissions = set(component["permissions"])
@@ -128,8 +130,13 @@ class ManifestTests(unittest.TestCase):
                 for topic in event_topics
             }.issubset(permissions)
         )
-        entry = component["exec"][1].removeprefix("@package/")
+        entry = component["exec"][0].removeprefix("@package/")
         self.assertTrue((ROOT / entry).is_file())
+        self.assertEqual(component["x-msys-ui-provider"], {"id": "lvgl", "default": True})
+        self.assertEqual(
+            component["exec"][component["exec"].index("--ui") + 1],
+            "@package/files/share/ui/settings.xml",
+        )
 
         software = next(
             item for item in manifest["components"]
@@ -183,22 +190,17 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(software_tk["runtime"], "tk")
         self.assertFalse(software_tk["activation"]["launchable"])
 
-        native = next(
-            item for item in manifest["components"]
-            if item["id"] == "main-lvgl"
-        )
+        native = component
         self.assertEqual(native["runtime"], "native")
-        self.assertFalse(native["activation"]["launchable"])
+        self.assertTrue(native["activation"]["launchable"])
         self.assertTrue({
             "mipc.call:role:launcher",
             "mipc.call:role:window-manager",
             "mipc.event:subscribe:msys.shell.preferences.changed",
             "mipc.event:subscribe:msys.layout.changed",
         }.issubset(set(native["permissions"])))
-        self.assertEqual(
-            native["x-msys-ui-provider"]["fallback_component"],
-            "org.msys.settings:main",
-        )
+        self.assertEqual(native["x-msys-ui-provider"], {"id": "lvgl", "default": True})
+        self.assertNotIn("main-lvgl", {item["id"] for item in manifest["components"]})
         self.assertTrue((ROOT / "files/app/lvgl_bridge.py").is_file())
         ui_index = native["exec"].index("--ui") + 1
         self.assertEqual(
