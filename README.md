@@ -1,5 +1,14 @@
 # MSYS Settings
 
+## 0.5.5 dynamic workarea resize
+
+The native Settings and Software Center binaries are rebuilt against
+`msys-ui-lvgl` 0.3.9.  When X11 Window Policy changes the application
+workarea, the shared runtime now replaces its pixmap, XImage, draw buffers and
+LVGL resolution atomically before mapping the complete replacement frame.
+Settings therefore fills the effective workarea without exposing the launcher
+below it, while unchanged geometry remains idle and does not add SPI presents.
+
 ## 0.5.4 one production frontend per Settings surface
 
 `main` and `software-center` are now the only production components.  Both use
