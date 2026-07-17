@@ -3,7 +3,7 @@
         style_bg_color="#f4f6fa" style_bg_opa="100%" style_border_width="0"
         style_radius="0" style_pad_all="8">
     <lv_obj name="home_page" width="100%" height="100%" flex_flow="column"
-            scrollable="false" style_bg_opa="0%" style_border_width="0"
+            scrollable="true" scroll_momentum="true" style_bg_opa="0%" style_border_width="0"
             style_radius="0" style_pad_all="0" style_pad_row="6">
       <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
               style_bg_opa="0%" style_border_width="0" style_radius="0"
@@ -11,8 +11,8 @@
         <lv_label text="设置" style_text_font="msys_20"
                   style_text_color="#182033"/>
       </lv_obj>
-      <lv_obj name="home_content" width="100%" flex_grow="1"
-              flex_flow="row_wrap" scrollable="true" scroll_momentum="true"
+      <lv_obj name="home_content" width="100%" height="content"
+              flex_flow="row_wrap" scrollable="false"
               style_bg_opa="0%" style_border_width="0" style_radius="0"
               style_pad_all="2" style_pad_right="5" style_pad_row="8"
               style_pad_column="8" style_flex_main_place="space_between"
@@ -236,6 +236,23 @@
           <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
                   style_bg_opa="0%" style_border_width="0" style_radius="0"
                   style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
+            <lv_label name="icon_roles" text="R" style_text_color="#356ae6"/>
+            <lv_label name="title_roles" text="系统角色" style_text_font="msys_14"
+                      style_text_color="#182033"/>
+          </lv_obj>
+          <lv_label name="summary_roles" text="点按查看提供者" width="100%" height="38"
+                    long_mode="wrap" style_text_font="msys_12" style_text_color="#667085"/>
+          <lv_event-call_function trigger="all" callback="settings_press"/>
+          <lv_event-call_function trigger="clicked" callback="settings_navigate" user_data="roles"/>
+        </lv_obj>
+
+        <lv_obj clickable="true" width="140" height="92" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="6">
+          <lv_obj width="100%" height="22" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="7" style_flex_cross_place="center">
             <lv_label name="icon_developer" text="D" style_text_color="#356ae6"/>
             <lv_label name="title_developer" text="开发者" style_text_font="msys_14"
                       style_text_color="#182033"/>
@@ -285,7 +302,7 @@
     </lv_obj>
 
     <lv_obj name="detail_page" width="100%" height="100%" flex_flow="column"
-            hidden="true" scrollable="false" style_bg_opa="0%"
+            hidden="true" scrollable="true" scroll_momentum="true" style_bg_opa="0%"
             style_border_width="0" style_radius="0" style_pad_all="0"
             style_pad_row="6">
       <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
@@ -302,8 +319,8 @@
         <lv_label name="detail_title" text="设置" style_text_font="msys_20"
                   style_text_color="#182033"/>
       </lv_obj>
-      <lv_obj name="detail_content" width="100%" flex_grow="1"
-              flex_flow="column" scrollable="true" scroll_momentum="true"
+      <lv_obj name="detail_content" width="100%" height="content"
+              flex_flow="column" scrollable="false"
               style_bg_opa="0%" style_border_width="0" style_radius="0"
               style_pad_all="3" style_pad_right="7" style_pad_row="10">
         <lv_label name="detail_note" text="真实系统状态" width="100%"
@@ -359,6 +376,33 @@
           </lv_button>
         </lv_obj>
 
+        <lv_obj name="choice2_row" width="100%" height="content" flex_flow="row_wrap"
+                hidden="true" scrollable="false" style_bg_color="#ffffff"
+                style_bg_opa="100%" style_radius="14" style_border_width="1"
+                style_border_color="#dfe4ee" style_pad_all="8" style_pad_row="6"
+                style_pad_column="6">
+          <lv_button name="choice2_0" width="126" height="40" style_radius="12" style_bg_color="#e7edfb" style_border_width="0">
+            <lv_label name="choice2_0_label" text="选项一" align="center" style_text_font="msys_12" style_text_color="#284caf"/>
+            <lv_event-call_function trigger="all" callback="settings_press"/>
+            <lv_event-call_function trigger="clicked" callback="panel_choice2" user_data="0"/>
+          </lv_button>
+          <lv_button name="choice2_1" width="126" height="40" style_radius="12" style_bg_color="#e7edfb" style_border_width="0">
+            <lv_label name="choice2_1_label" text="选项二" align="center" style_text_font="msys_12" style_text_color="#284caf"/>
+            <lv_event-call_function trigger="all" callback="settings_press"/>
+            <lv_event-call_function trigger="clicked" callback="panel_choice2" user_data="1"/>
+          </lv_button>
+          <lv_button name="choice2_2" width="126" height="40" style_radius="12" style_bg_color="#e7edfb" style_border_width="0">
+            <lv_label name="choice2_2_label" text="选项三" align="center" style_text_font="msys_12" style_text_color="#284caf"/>
+            <lv_event-call_function trigger="all" callback="settings_press"/>
+            <lv_event-call_function trigger="clicked" callback="panel_choice2" user_data="2"/>
+          </lv_button>
+          <lv_button name="choice2_3" width="126" height="40" style_radius="12" style_bg_color="#e7edfb" style_border_width="0">
+            <lv_label name="choice2_3_label" text="选四" align="center" style_text_font="msys_12" style_text_color="#284caf"/>
+            <lv_event-call_function trigger="all" callback="settings_press"/>
+            <lv_event-call_function trigger="clicked" callback="panel_choice2" user_data="3"/>
+          </lv_button>
+        </lv_obj>
+
         <lv_obj name="adjust_row" width="100%" height="56" flex_flow="row"
                 hidden="true" scrollable="false" style_bg_color="#ffffff"
                 style_bg_opa="100%" style_radius="14" style_border_width="1"
@@ -396,6 +440,8 @@
                        style_text_font="msys_12" style_text_color="#182033"
                        style_bg_color="#f8f9fc" style_border_color="#d8dfeb"
                        style_border_width="1" style_radius="12" style_pad_all="8"/>
+          <lv_label name="input_secondary_label" text="附加值" width="100%" height="content"
+                    long_mode="wrap" style_text_font="msys_12" style_text_color="#526071"/>
           <lv_button name="input_apply" width="100%" height="42" style_radius="12"
                      style_bg_color="#356ae6" style_border_width="0">
             <lv_label name="input_apply_label" text="应用" align="center"
@@ -439,7 +485,7 @@
     </lv_obj>
 
     <lv_obj name="appearance_page" width="100%" height="100%" flex_flow="column"
-            hidden="true" scrollable="false" style_bg_opa="0%"
+            hidden="true" scrollable="true" scroll_momentum="true" style_bg_opa="0%"
             style_border_width="0" style_radius="0" style_pad_all="0"
             style_pad_row="6">
       <lv_obj width="100%" height="42" flex_flow="row" scrollable="false"
@@ -457,8 +503,8 @@
                   style_text_color="#182033"/>
       </lv_obj>
 
-      <lv_obj name="appearance_content" width="100%" flex_grow="1"
-              flex_flow="column" scrollable="true" scroll_momentum="true"
+      <lv_obj name="appearance_content" width="100%" height="content"
+              flex_flow="column" scrollable="false"
               style_bg_opa="0%" style_border_width="0" style_radius="0"
               style_pad_all="3" style_pad_right="7" style_pad_row="10">
         <lv_label name="appearance_status" text="正在读取 Launcher 和 Window Manager…"
@@ -474,7 +520,7 @@
           <lv_label text="跟随产品配置，或切换为手机、桌面、单应用布局。单应用沿用 kiosk 合同。"
                     width="100%" height="content" long_mode="wrap"
                     style_text_font="msys_12" style_text_color="#667085"/>
-          <lv_obj width="100%" height="40" flex_flow="row" scrollable="false"
+          <lv_obj width="100%" height="content" flex_flow="row_wrap" scrollable="false"
                   style_bg_opa="0%" style_border_width="0" style_radius="0"
                   style_pad_all="0" style_pad_column="5">
             <lv_button name="layout_profile" width="58" height="38" style_radius="12"
@@ -500,6 +546,12 @@
               <lv_label text="单应用" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
               <lv_event-call_function trigger="all" callback="settings_press"/>
               <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="layout=kiosk"/>
+            </lv_button>
+            <lv_button name="layout_embedded" width="58" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="嵌入式" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="layout=embedded"/>
             </lv_button>
           </lv_obj>
 
@@ -598,6 +650,23 @@
               <lv_event-call_function trigger="value_changed" callback="appearance_toggle" user_data="show_labels"/>
             </lv_switch>
           </lv_obj>
+          <lv_label text="桌面排序" style_text_font="msys_14" style_text_color="#182033"/>
+          <lv_obj width="100%" height="40" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="8">
+            <lv_button name="sort_name" width="125" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="按名称" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="sort=name"/>
+            </lv_button>
+            <lv_button name="sort_component" width="125" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="按组件 ID" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="sort=component"/>
+            </lv_button>
+          </lv_obj>
           <lv_obj width="100%" height="48" flex_flow="row" scrollable="false"
                   style_bg_opa="0%" style_border_width="0" style_radius="0"
                   style_pad_all="0" style_flex_main_place="space_between" style_flex_cross_place="center">
@@ -627,6 +696,13 @@
           <lv_label text="纯色（#RRGGBB）" style_text_font="msys_12" style_text_color="#526071"/>
           <lv_textarea name="wallpaper_color_input" width="100%" height="42"
                        text="#F4F6FA" placeholder="#F4F6FA" one_line="true"
+                       style_text_font="msys_14" style_text_color="#182033"
+                       style_bg_color="#f8f9fc" style_bg_opa="100%"
+                       style_border_color="#d8dfeb" style_border_width="1"
+                       style_radius="12" style_pad_all="9"/>
+          <lv_label text="强调色（#RRGGBB）" style_text_font="msys_12" style_text_color="#526071"/>
+          <lv_textarea name="accent_color_input" width="100%" height="42"
+                       text="#55A8FF" placeholder="#55A8FF" one_line="true"
                        style_text_font="msys_14" style_text_color="#182033"
                        style_bg_color="#f8f9fc" style_bg_opa="100%"
                        style_border_color="#d8dfeb" style_border_width="1"
@@ -681,6 +757,50 @@
           <lv_label text="动效策略由 Launcher 在运行时切换；不会更改 dirty 算法或提高空闲刷新率。"
                     width="100%" height="content" long_mode="wrap"
                     style_text_font="msys_12" style_text_color="#667085"/>
+        </lv_obj>
+
+        <lv_obj width="100%" height="content" flex_flow="column"
+                style_bg_color="#ffffff" style_bg_opa="100%" style_radius="16"
+                style_border_width="1" style_border_color="#dfe4ee"
+                style_pad_all="10" style_pad_row="7">
+          <lv_label text="系统栏可见性" style_text_font="msys_16" style_text_color="#182033"/>
+          <lv_label text="自动隐藏由 Shell 实时执行；从屏幕边缘上划可重新显示，不重启 X11 或显示输出。"
+                    width="100%" height="content" long_mode="wrap"
+                    style_text_font="msys_12" style_text_color="#667085"/>
+          <lv_label text="底部导航栏" style_text_font="msys_14" style_text_color="#182033"/>
+          <lv_obj width="100%" height="40" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="8">
+            <lv_button name="navigation_visibility_always" width="125" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="始终显示" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="navigation_visibility=always"/>
+            </lv_button>
+            <lv_button name="navigation_visibility_auto" width="125" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="自动隐藏" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="navigation_visibility=auto-hide"/>
+            </lv_button>
+          </lv_obj>
+          <lv_label text="顶部状态栏" style_text_font="msys_14" style_text_color="#182033"/>
+          <lv_obj width="100%" height="40" flex_flow="row" scrollable="false"
+                  style_bg_opa="0%" style_border_width="0" style_radius="0"
+                  style_pad_all="0" style_pad_column="8">
+            <lv_button name="status_visibility_always" width="125" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="始终显示" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="status_visibility=always"/>
+            </lv_button>
+            <lv_button name="status_visibility_auto" width="125" height="38" style_radius="12"
+                       style_bg_color="#eef2f8" style_bg_opa="100%" style_border_width="0">
+              <lv_label text="自动隐藏" align="center" style_text_font="msys_12" style_text_color="#28405f"/>
+              <lv_event-call_function trigger="all" callback="settings_press"/>
+              <lv_event-call_function trigger="clicked" callback="appearance_choice" user_data="status_visibility=auto-hide"/>
+            </lv_button>
+          </lv_obj>
         </lv_obj>
 
         <lv_obj width="100%" height="content" flex_flow="column"

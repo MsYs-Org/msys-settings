@@ -24,6 +24,7 @@ ORIENTATIONS = ("auto", "portrait", "landscape")
 DESKTOP_LAYOUTS = ("profile", "auto", "mobile", "desktop", "kiosk", "embedded")
 DESKTOP_SORTS = ("name", "component")
 NAVIGATION_MODES = ("buttons", "pill")
+SYSTEM_BAR_VISIBILITIES = ("always", "auto-hide")
 PACKAGE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)+$")
 ROLE_NAME = re.compile(r"^[a-z][a-z0-9.-]{0,127}$")
 HAL_DOMAIN = re.compile(r"^[a-z][a-z0-9.-]{0,63}$")
@@ -104,6 +105,8 @@ DEFAULT_DESKTOP_PREFERENCES: dict[str, Any] = {
     "grid_rows": 0,
     "acrylic": False,
     "navigation_mode": "pill",
+    "navigation_visibility": "always",
+    "status_visibility": "always",
     "icon_spacing": 8,
     "folders_enabled": True,
     "large_folders_enabled": True,
@@ -640,6 +643,8 @@ class SettingsModel:
         grid_rows: int | str = 0,
         acrylic: bool = False,
         navigation_mode: str = "pill",
+        navigation_visibility: str = "always",
+        status_visibility: str = "always",
         icon_spacing: int | str = 8,
         folders_enabled: bool = True,
         large_folders_enabled: bool = True,
@@ -660,6 +665,8 @@ class SettingsModel:
                     "grid_rows": grid_rows,
                     "acrylic": acrylic,
                     "navigation_mode": navigation_mode,
+                    "navigation_visibility": navigation_visibility,
+                    "status_visibility": status_visibility,
                     "icon_spacing": icon_spacing,
                     "folders_enabled": folders_enabled,
                     "large_folders_enabled": large_folders_enabled,
@@ -894,6 +901,16 @@ class SettingsModel:
 
     def toggle_input_method(self) -> OperationResult:
         result = self._safe(self.client.toggle_input_method)
+        return _normalise_input_method_result(result)
+
+    def set_input_method_mode(self, mode: object) -> OperationResult:
+        if mode not in {"en", "zh", "numeric", "symbols"}:
+            return OperationResult(
+                False,
+                message="Unsupported input method mode",
+                code="INPUT_METHOD_BAD_PAYLOAD",
+            )
+        result = self._safe(lambda: self.client.set_input_method_mode(str(mode)))
         return _normalise_input_method_result(result)
 
     @staticmethod
@@ -1824,6 +1841,14 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
     navigation_mode = payload.get("navigation_mode", "pill")
     if navigation_mode not in NAVIGATION_MODES:
         raise ValueError(f"Unsupported navigation mode: {navigation_mode}")
+    navigation_visibility = payload.get("navigation_visibility", "always")
+    status_visibility = payload.get("status_visibility", "always")
+    if navigation_visibility not in SYSTEM_BAR_VISIBILITIES:
+        raise ValueError(
+            f"Unsupported navigation visibility: {navigation_visibility}"
+        )
+    if status_visibility not in SYSTEM_BAR_VISIBILITIES:
+        raise ValueError(f"Unsupported status visibility: {status_visibility}")
     icon_spacing = grid_amount(
         "icon_spacing", 48, int(DEFAULT_DESKTOP_PREFERENCES["icon_spacing"])
     )
@@ -1850,6 +1875,8 @@ def validate_desktop_preferences(payload: dict[str, Any]) -> dict[str, Any]:
         "grid_rows": grid_rows,
         "acrylic": acrylic,
         "navigation_mode": str(navigation_mode),
+        "navigation_visibility": str(navigation_visibility),
+        "status_visibility": str(status_visibility),
         "icon_spacing": icon_spacing,
         "folders_enabled": folders_enabled,
         "large_folders_enabled": large_folders_enabled,

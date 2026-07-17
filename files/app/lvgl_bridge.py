@@ -263,7 +263,12 @@ class Bridge:
             )
             fields.update({
                 "display.summary": f"{profile} · {orientation}",
-                "display.detail": f"布局：{profile}\n方向：{orientation}",
+                "display.detail": (
+                    f"布局：{profile}\n方向：{orientation}\n"
+                    f"安全区域：{self._layout_values(data)[1]}"
+                ),
+                "display.profile": profile,
+                "display.insets": self._layout_values(data)[1],
                 "appearance.orientation": orientation,
             })
         if not details:
@@ -280,6 +285,7 @@ class Bridge:
                 + ("（可写）" if physical.data.get("writable") else "（只读）")
             )
             fields["display.physical.available"] = "1" if physical.data.get("writable") else "0"
+            fields["display.physical.rotation"] = physical.data.get("value", "normal")
         preferences = self.model.desktop_preferences()
         if not preferences.ok:
             fields.update({
@@ -309,6 +315,8 @@ class Bridge:
         fields["appearance.detail"] = (
             f"图标：{values.get('icon_size', 64)} px · "
             f"间距：{values.get('icon_spacing', 8)} px\n"
+            f"导航栏：{values.get('navigation_visibility', 'always')} · "
+            f"状态栏：{values.get('status_visibility', 'always')}\n"
             f"壁纸：{values.get('wallpaper_path') or values.get('wallpaper_color', '#F4F6FA')}\n"
             "由 Launcher 角色实时应用，不重启 X11/SPI。"
         )
@@ -432,6 +440,18 @@ class Bridge:
             "audio.toggle.value": "1" if data.get("muted") is True else "0",
             "audio.volume": volume if isinstance(volume, int) else 50,
         }
+        player = data.get("player", {})
+        if isinstance(player, dict):
+            fields.update({
+                "audio.player.enabled": "1" if player.get("enabled") is True else "0",
+                "audio.player.server": str(player.get("server") or ""),
+                "audio.player.name": str(player.get("name") or "MSYS Audio"),
+            })
+            fields["audio.detail"] += (
+                f"\n播放器：{'运行中' if player.get('running') else '已停止'}"
+                f" · {'启用' if player.get('enabled') else '停用'}"
+                f"\n服务器：{player.get('server') or '自动发现'}"
+            )
         output_rows = []
         for row in data.get("outputs", []):
             if not isinstance(row, dict) or not row.get("id"):
@@ -624,6 +644,100 @@ class Bridge:
             "input.toggle.value": (
                 "1" if input_state.ok and input_state.data.get("visible") else "0"
             ),
+            "input.mode": str(input_state.data.get("mode") or "en") if input_state.ok else "en",
+        }
+
+    def collect_regional(self) -> dict[str, object]:
+        state = self.regional.status()
+        fields = self.local_fields()
+        timezones = [
+            str(value) for value in state.get("timezones", [])
+            if isinstance(value, str) and value
+        ]
+        current = str(state.get("timezone") or "UTC")
+        ordered = ([current] if current in timezones else []) + [
+            value for value in timezones if value != current
+        ]
+        fields.update(self._item_fields("regional", [
+            (timezone, timezone, "当前时区" if timezone == current else "可用时区")
+            for timezone in ordered[:64]
+        ]))
+        reason = str(state.get("timezone_reason") or "")
+        fields["regional.detail"] = (
+            f"语言：{state.get('language') or 'system'}\n"
+            f"时区：{current}\n"
+            f"时区写入：{'可用' if state.get('timezone_writable') else '不可用'}"
+            + (f"\n原因：{reason}" if reason else "")
+        )
+        return fields
+
+    def collect_roles(self) -> dict[str, object]:
+        result = self.model.list_roles()
+        if not result.ok:
+            return {
+                "roles.summary": "角色注册表不可用",
+                "roles.detail": self._failure(result),
+                "roles.available": "0",
+                **self._item_fields("roles", []),
+            }
+        roles = result.data.get("roles", [])
+        rows: list[tuple[str, str, str]] = []
+        details: list[str] = []
+        for role in roles if isinstance(roles, list) else []:
+            if not isinstance(role, dict):
+                continue
+            name = str(role.get("role") or "")
+            active = str(role.get("active") or "")
+            providers = role.get("candidates", [])
+            provider_rows = providers if isinstance(providers, list) else []
+            details.append(f"{name}：{active or '未选择'} · {len(provider_rows)} 个候选")
+            for provider in provider_rows:
+                component = (
+                    str(provider.get("component") or provider.get("id") or "")
+                    if isinstance(provider, dict) else str(provider)
+                )
+                if not name or not component:
+                    continue
+                rows.append((
+                    f"{name}\x1f{component}",
+                    component,
+                    f"{name} · {'当前' if component == active else '候选'}",
+                ))
+        return {
+            "roles.summary": f"{len(roles) if isinstance(roles, list) else 0} 个系统角色",
+            "roles.detail": "\n".join(details) or "没有已注册角色",
+            "roles.available": "1",
+            **self._item_fields("roles", rows),
+        }
+
+    def collect_overview(self) -> dict[str, object]:
+        result = self.model.overview()
+        if not result.ok:
+            return {
+                "system.summary": "系统概览不可用",
+                "system.detail": self._failure(result),
+                "system.available": "0",
+            }
+        data = result.data
+        components = data.get("components", {}).get("components", [])
+        roles = data.get("roles", {}).get("roles", [])
+        services = data.get("services", {})
+        isolation = data.get("isolation", {})
+        session = data.get("session", {})
+        return {
+            "system.summary": (
+                f"{len(components) if isinstance(components, list) else 0} 个组件 · "
+                f"{len(roles) if isinstance(roles, list) else 0} 个角色"
+            ),
+            "system.detail": (
+                f"组件：{session.get('component') or 'standalone'}\n"
+                f"版本：{session.get('package_version') or 'development'}\n"
+                f"显示：{session.get('display') or '未提供'}\n"
+                f"运行目录：{session.get('runtime_dir') or '未知'}\n"
+                f"服务：{json.dumps(services, ensure_ascii=False)[:320]}\n"
+                f"隔离：{json.dumps(isolation, ensure_ascii=False)[:320]}"
+            ),
+            "system.available": "1",
         }
 
     def collect_developer(self) -> dict[str, object]:
@@ -672,6 +786,8 @@ class Bridge:
                 self.collect_storage,
                 self.collect_apps,
                 self.collect_system,
+                self.collect_roles,
+                self.collect_overview,
                 self.collect_developer,
             )
             with ThreadPoolExecutor(max_workers=4, thread_name_prefix="settings-lvgl") as pool:
@@ -697,6 +813,7 @@ class Bridge:
             "updates.summary": "点按检查更新",
             "input.summary": "按需读取输入法",
             "hal.summary": "点按查看提供者",
+            "roles.summary": "点按查看系统职位",
             "developer.summary": "点按查看显示诊断",
             "calibration.summary": "点按检查校准工具",
         })
@@ -717,13 +834,14 @@ class Bridge:
             "apps": (self.collect_apps,),
             "updates": (self.collect_apps,),
             "hal": (self.collect_hal,),
+            "roles": (self.collect_roles,),
             "developer": (self.collect_developer,),
             "input": (self.collect_system,),
             "calibration": (self.collect_system,),
-            "system": (self.collect_system,),
+            "system": (self.collect_overview,),
         }
         if panel == "regional":
-            self.emit(self.local_fields())
+            self.emit(self.collect_regional())
             return
         selected = collectors.get(panel, ())
         if not selected:
@@ -741,10 +859,15 @@ class Bridge:
     def action(self, name: str, value: str) -> None:
         result: OperationResult
         if name == "appearance_wallpaper":
-            color, path = value[:7], value[7:]
+            parts = value.split("\x1f", 2)
+            if len(parts) == 3:
+                color, accent, path = parts
+            else:  # compatibility with the 0.5.2 renderer
+                color, accent, path = value[:7], "#55A8FF", value[7:]
             with self._desktop_lock:
                 result = self.model.update_desktop_preferences({
                     "wallpaper_color": color,
+                    "accent_color": accent,
                     "wallpaper_path": path,
                 })
                 self._emit_desktop_result(result)
@@ -755,6 +878,9 @@ class Bridge:
         desktop_fields = {
             "appearance_set_layout": "layout",
             "appearance_set_navigation_mode": "navigation_mode",
+            "appearance_set_navigation_visibility": "navigation_visibility",
+            "appearance_set_status_visibility": "status_visibility",
+            "appearance_set_sort": "sort",
             "icon_size": "icon_size",
             "icon_spacing": "icon_spacing",
             "grid_columns": "grid_columns",
@@ -794,6 +920,31 @@ class Bridge:
                 else:
                     self.emit({"toast": f"方向设置失败：{self._failure(result)}"})
                     self.emit(self.collect_layout())
+            return
+        if name in {"display_set_profile", "display_set_insets"}:
+            current = self.model.get_layout()
+            if not current.ok:
+                self.emit({"toast": f"显示布局读取失败：{self._failure(current)}"})
+                return
+            data = current.data
+            effective = data.get("effective", data)
+            if not isinstance(effective, dict):
+                effective = {}
+            profile, insets = self._layout_values(data)
+            orientation = str(
+                effective.get("orientation_policy")
+                or effective.get("orientation")
+                or "auto"
+            )
+            if name == "display_set_profile":
+                profile = value
+            else:
+                insets = value.split("\x1f", 1)[0].strip()
+            result = self.model.set_layout(profile, orientation, insets)
+            self.emit({
+                "toast": "显示布局已实时应用" if result.ok else f"显示布局失败：{self._failure(result)}"
+            })
+            self.emit(self.collect_layout())
             return
         if name == "physical_rotation":
             device = str(self._physical.get("device") or "")
@@ -869,9 +1020,29 @@ class Bridge:
             self.emit({"toast": "音频输出已切换" if result.ok else f"切换失败：{self._failure(result)}"})
             self.emit(self.collect_audio())
             return
+        if name in {"audio_player_enabled", "audio_player_config"}:
+            player = self._audio.get("player", {})
+            if not isinstance(player, dict):
+                player = {}
+            if name == "audio_player_config":
+                server, _, player_name = value.partition("\x1f")
+                enabled = player.get("enabled") is True
+            else:
+                server = str(player.get("server") or "")
+                player_name = str(player.get("name") or "MSYS Audio")
+                enabled = value == "1"
+            result = self.model.audio_configure_player(enabled, server, player_name)
+            self.emit({"toast": "播放器配置已更新" if result.ok else f"播放器配置失败：{self._failure(result)}"})
+            self.emit(self.collect_audio())
+            return
         if name == "input_toggle":
             result = self.model.toggle_input_method()
             self.emit({"toast": "输入法状态已更新" if result.ok else f"输入法不可用：{self._failure(result)}"})
+            self.emit(self.collect_system())
+            return
+        if name == "input_mode":
+            result = self.model.set_input_method_mode(value)
+            self.emit({"toast": "输入模式已保存" if result.ok else f"输入模式不可用：{self._failure(result)}"})
             self.emit(self.collect_system())
             return
         if name in {"wifi_scan", "wifi_disconnect", "wifi_connect", "wifi_forget"}:
@@ -974,6 +1145,17 @@ class Bridge:
             self.emit({"toast": "HAL 提供者已更新" if result.ok else f"HAL 操作失败：{self._failure(result)}"})
             self.emit(self.collect_hal())
             return
+        if name in {"role_select", "role_reset"}:
+            role, _, provider = value.partition("\x1f")
+            role = role.strip()
+            provider = provider.strip()
+            result = (
+                self.model.select_role(role, provider)
+                if name == "role_select" else self.model.reset_role(role)
+            )
+            self.emit({"toast": "系统角色已更新" if result.ok else f"角色切换失败：{self._failure(result)}"})
+            self.emit(self.collect_roles())
+            return
         if name == "developer_fps":
             current = self.model.ch347_status()
             current_state = current.data.get("state", current.data) if current.ok else {}
@@ -1053,7 +1235,7 @@ def main() -> int:
                 }:
                     return
                 requested = str(payload.get("name") or payload.get("panel") or "home")
-                panel = {"layout": "appearance", "roles": "hal"}.get(requested, requested)
+                panel = {"layout": "appearance"}.get(requested, requested)
                 bridge._settings_page = panel
                 bridge.emit({"settings.page": panel})
                 return

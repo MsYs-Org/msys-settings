@@ -23,7 +23,7 @@
 
 enum { PANEL_WIFI, PANEL_BLUETOOTH, PANEL_AUDIO, PANEL_DISPLAY,
        PANEL_APPEARANCE, PANEL_INPUT, PANEL_STORAGE, PANEL_REGIONAL,
-       PANEL_APPS, PANEL_UPDATES, PANEL_HAL, PANEL_DEVELOPER,
+       PANEL_APPS, PANEL_UPDATES, PANEL_HAL, PANEL_ROLES, PANEL_DEVELOPER,
        PANEL_CALIBRATION, PANEL_SYSTEM, PANEL_COUNT };
 
 enum { APP_MODE_SETTINGS, APP_MODE_SOFTWARE_CENTER };
@@ -57,9 +57,13 @@ typedef struct {
 typedef struct {
     char layout[16];
     char navigation_mode[16];
+    char navigation_visibility[16];
+    char status_visibility[16];
     char orientation[16];
     char wallpaper_color[16];
+    char accent_color[16];
     char wallpaper_path[1024];
+    char sort[16];
     int icon_size;
     int icon_spacing;
     int grid_columns;
@@ -98,11 +102,15 @@ typedef struct {
     lv_obj_t *choice_row;
     lv_obj_t *choice_buttons[4];
     lv_obj_t *choice_labels[4];
+    lv_obj_t *choice2_row;
+    lv_obj_t *choice2_buttons[4];
+    lv_obj_t *choice2_labels[4];
     lv_obj_t *adjust_row;
     lv_obj_t *adjust_label;
     lv_obj_t *adjust_value;
     lv_obj_t *input_card;
     lv_obj_t *input_label;
+    lv_obj_t *input_secondary_label;
     lv_obj_t *input_value;
     lv_obj_t *input_secret;
     lv_obj_t *input_apply;
@@ -114,20 +122,31 @@ typedef struct {
     lv_obj_t *status_label;
     lv_obj_t *appearance_page;
     lv_obj_t *appearance_status;
-    lv_obj_t *appearance_layout[4];
+    lv_obj_t *appearance_layout[5];
+    lv_obj_t *appearance_sort[2];
     lv_obj_t *appearance_navigation[2];
+    lv_obj_t *appearance_navigation_visibility[2];
+    lv_obj_t *appearance_status_visibility[2];
     lv_obj_t *appearance_orientation[3];
     lv_obj_t *appearance_icon_size;
     lv_obj_t *appearance_icon_spacing;
     lv_obj_t *appearance_grid_columns;
     lv_obj_t *appearance_grid_rows;
     lv_obj_t *appearance_wallpaper_color;
+    lv_obj_t *appearance_accent_color;
     lv_obj_t *appearance_wallpaper_path;
     lv_obj_t *appearance_switches[6];
     desktop_state_t desktop;
     bool applying_snapshot;
     bool snapshot_changed;
     int audio_volume;
+    bool audio_player_enabled;
+    char audio_player_server[256];
+    char audio_player_name[80];
+    char display_profile[16];
+    char display_insets[64];
+    char physical_rotation[16];
+    char input_mode[16];
     int developer_fps;
     bool developer_debug;
     bool developer_cursor;
@@ -249,6 +268,7 @@ static void init_panels(app_t *app)
         {.id="apps", .title="应用", .note="已安装软件与卸载", .symbol=LV_SYMBOL_LIST},
         {.id="updates", .title="更新", .note="签名更新、恢复与回退", .symbol=LV_SYMBOL_REFRESH},
         {.id="hal", .title="硬件抽象", .note="设备、能力与提供者", .symbol=LV_SYMBOL_EYE_OPEN},
+        {.id="roles", .title="系统角色", .note="可替换系统职位与当前提供者", .symbol=LV_SYMBOL_SHUFFLE},
         {.id="developer", .title="开发者选项", .note="FPS、脏区与触摸调试", .symbol=LV_SYMBOL_SETTINGS},
         {.id="calibration", .title="触摸校准", .note="校准触摸坐标", .symbol=LV_SYMBOL_EDIT},
         {.id="system", .title="系统", .note="组件、输入与运行状态", .symbol=LV_SYMBOL_SETTINGS},
@@ -266,9 +286,16 @@ static void init_panels(app_t *app)
     copy_text(app->desktop.layout, sizeof(app->desktop.layout), "profile");
     copy_text(app->desktop.navigation_mode,
               sizeof(app->desktop.navigation_mode), "pill");
+    copy_text(app->desktop.navigation_visibility,
+              sizeof(app->desktop.navigation_visibility), "always");
+    copy_text(app->desktop.status_visibility,
+              sizeof(app->desktop.status_visibility), "always");
     copy_text(app->desktop.orientation, sizeof(app->desktop.orientation), "auto");
     copy_text(app->desktop.wallpaper_color,
               sizeof(app->desktop.wallpaper_color), "#F4F6FA");
+    copy_text(app->desktop.accent_color,
+              sizeof(app->desktop.accent_color), "#55A8FF");
+    copy_text(app->desktop.sort, sizeof(app->desktop.sort), "name");
     app->desktop.icon_size = 64;
     app->desktop.icon_spacing = 8;
     app->desktop.show_labels = true;
@@ -276,6 +303,11 @@ static void init_panels(app_t *app)
     app->desktop.large_folders_enabled = true;
     app->desktop.animations_enabled = true;
     app->audio_volume = 50;
+    copy_text(app->audio_player_name, sizeof(app->audio_player_name), "MSYS Audio");
+    copy_text(app->display_profile, sizeof(app->display_profile), "mobile");
+    copy_text(app->display_insets, sizeof(app->display_insets), "auto");
+    copy_text(app->physical_rotation, sizeof(app->physical_rotation), "normal");
+    copy_text(app->input_mode, sizeof(app->input_mode), "en");
     app->developer_fps = 60;
     copy_text(app->regional_language, sizeof(app->regional_language), "system");
     copy_text(app->regional_timezone, sizeof(app->regional_timezone), "UTC");
@@ -413,6 +445,10 @@ static void xml_navigate_event(lv_event_t *event)
     active_app->active_panel = (int)(panel - active_app->panels);
     fprintf(stderr, "settings-lvgl: page=%s\n", panel->id);
     update_visible(active_app);
+    if(active_app->active_panel == PANEL_APPEARANCE && active_app->appearance_page != NULL)
+        lv_obj_scroll_to_y(active_app->appearance_page, 0, LV_ANIM_OFF);
+    else if(active_app->detail_page != NULL)
+        lv_obj_scroll_to_y(active_app->detail_page, 0, LV_ANIM_OFF);
     send_bridge(active_app, "REFRESH", panel->id, "");
     send_bridge(active_app, "ACTION", "settings_page", panel->id);
     if(active_app->detail_title != NULL)
@@ -426,6 +462,8 @@ static void xml_back_event(lv_event_t *event)
     active_app->active_panel = -1;
     fprintf(stderr, "settings-lvgl: page=home\n");
     update_visible(active_app);
+    if(active_app->home_page != NULL)
+        lv_obj_scroll_to_y(active_app->home_page, 0, LV_ANIM_OFF);
     send_bridge(active_app, "ACTION", "settings_page", "home");
 }
 
@@ -513,11 +551,11 @@ static void panel_choice_event(lv_event_t *event)
     if(active_app == NULL || active_app->active_panel < 0 ||
        choice < 0 || choice > 3) return;
     if(active_app->active_panel == PANEL_DISPLAY) {
-        static const char *const orientations[] = {
-            "normal", "right", "inverted", "left"
+        static const char *const profiles[] = {
+            "mobile", "kiosk", "desktop", NULL
         };
-        action = "physical_rotation";
-        value = orientations[choice];
+        action = "display_set_profile";
+        value = profiles[choice];
     }
     else if(active_app->active_panel == PANEL_REGIONAL) {
         static const char *const languages[] = {
@@ -556,9 +594,39 @@ static void panel_choice_event(lv_event_t *event)
         action = actions[choice];
         value = active_app->selected_item;
     }
+    else if(active_app->active_panel == PANEL_ROLES) {
+        static const char *const actions[] = {"role_select", "role_reset", NULL, NULL};
+        action = actions[choice];
+        value = active_app->selected_item;
+    }
+    else if(active_app->active_panel == PANEL_INPUT) {
+        static const char *const modes[] = {"en", "zh", "numeric", "symbols"};
+        action = "input_mode";
+        value = modes[choice];
+    }
+    else if(active_app->active_panel == PANEL_AUDIO) {
+        static const char *const enabled[] = {"1", "0", NULL, NULL};
+        action = "audio_player_enabled";
+        value = enabled[choice];
+    }
     if(action != NULL && value != NULL) {
         send_bridge(active_app, "ACTION", action, value);
         show_toast(active_app, "正在应用…");
+    }
+}
+
+static void panel_choice2_event(lv_event_t *event)
+{
+    const char *choice_text = lv_event_get_user_data(event);
+    int choice = choice_text != NULL ? atoi(choice_text) : -1;
+    if(active_app == NULL || active_app->active_panel != PANEL_DISPLAY ||
+       choice < 0 || choice > 3) return;
+    {
+        static const char *const rotations[] = {
+            "normal", "right", "inverted", "left"
+        };
+        send_bridge(active_app, "ACTION", "physical_rotation", rotations[choice]);
+        show_toast(active_app, "正在同步旋转面板与触摸矩阵…");
     }
 }
 
@@ -598,6 +666,8 @@ static void panel_input_apply_event(lv_event_t *event)
                  ? lv_textarea_get_text(active_app->input_secret) : "";
     switch(active_app->active_panel) {
     case PANEL_REGIONAL: action = "regional_timezone"; break;
+    case PANEL_DISPLAY: action = "display_set_insets"; break;
+    case PANEL_AUDIO: action = "audio_player_config"; break;
     default: break;
     }
     if(action == NULL) return;
@@ -636,6 +706,21 @@ static void appearance_choice_event(lv_event_t *event)
         copy_text(active_app->desktop.navigation_mode,
                   sizeof(active_app->desktop.navigation_mode), separator + 1);
         send_bridge(active_app, "ACTION", "appearance_set_navigation_mode", separator + 1);
+    }
+    else if(strcmp(field, "navigation_visibility") == 0) {
+        copy_text(active_app->desktop.navigation_visibility,
+                  sizeof(active_app->desktop.navigation_visibility), separator + 1);
+        send_bridge(active_app, "ACTION", "appearance_set_navigation_visibility", separator + 1);
+    }
+    else if(strcmp(field, "status_visibility") == 0) {
+        copy_text(active_app->desktop.status_visibility,
+                  sizeof(active_app->desktop.status_visibility), separator + 1);
+        send_bridge(active_app, "ACTION", "appearance_set_status_visibility", separator + 1);
+    }
+    else if(strcmp(field, "sort") == 0) {
+        copy_text(active_app->desktop.sort,
+                  sizeof(active_app->desktop.sort), separator + 1);
+        send_bridge(active_app, "ACTION", "appearance_set_sort", separator + 1);
     }
     else return;
     appearance_update_visible(active_app);
@@ -716,14 +801,18 @@ static void appearance_toggle_event(lv_event_t *event)
 static void appearance_apply_wallpaper_event(lv_event_t *event)
 {
     const char *color;
+    const char *accent;
     const char *path;
-    char request[1040];
+    char request[1080];
     (void)event;
     if(active_app == NULL || active_app->appearance_wallpaper_color == NULL ||
+       active_app->appearance_accent_color == NULL ||
        active_app->appearance_wallpaper_path == NULL) return;
     color = lv_textarea_get_text(active_app->appearance_wallpaper_color);
+    accent = lv_textarea_get_text(active_app->appearance_accent_color);
     path = lv_textarea_get_text(active_app->appearance_wallpaper_path);
-    (void)snprintf(request, sizeof(request), "%.7s%s", color, path);
+    (void)snprintf(request, sizeof(request), "%.7s\x1f%.7s\x1f%s",
+                   color, accent, path);
     send_bridge(active_app, "ACTION", "appearance_wallpaper", request);
     show_toast(active_app, "正在应用壁纸…");
 }
@@ -1003,6 +1092,7 @@ static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
        lv_xml_register_event_cb(scope, "panel_primary", panel_primary_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "panel_secondary", panel_secondary_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "panel_choice", panel_choice_event) != LV_RESULT_OK ||
+       lv_xml_register_event_cb(scope, "panel_choice2", panel_choice2_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "panel_adjust", panel_adjust_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "panel_input_apply", panel_input_apply_event) != LV_RESULT_OK ||
        lv_xml_register_event_cb(scope, "appearance_choice", appearance_choice_event) != LV_RESULT_OK ||
@@ -1062,8 +1152,15 @@ static void wire_document(app_t *app)
     app->appearance_layout[1] = ui_object(app, "layout_mobile");
     app->appearance_layout[2] = ui_object(app, "layout_desktop");
     app->appearance_layout[3] = ui_object(app, "layout_kiosk");
+    app->appearance_layout[4] = ui_object(app, "layout_embedded");
+    app->appearance_sort[0] = ui_object(app, "sort_name");
+    app->appearance_sort[1] = ui_object(app, "sort_component");
     app->appearance_navigation[0] = ui_object(app, "navigation_buttons");
     app->appearance_navigation[1] = ui_object(app, "navigation_pill");
+    app->appearance_navigation_visibility[0] = ui_object(app, "navigation_visibility_always");
+    app->appearance_navigation_visibility[1] = ui_object(app, "navigation_visibility_auto");
+    app->appearance_status_visibility[0] = ui_object(app, "status_visibility_always");
+    app->appearance_status_visibility[1] = ui_object(app, "status_visibility_auto");
     app->appearance_orientation[0] = ui_object(app, "orientation_auto");
     app->appearance_orientation[1] = ui_object(app, "orientation_portrait");
     app->appearance_orientation[2] = ui_object(app, "orientation_landscape");
@@ -1072,6 +1169,7 @@ static void wire_document(app_t *app)
     app->appearance_grid_columns = ui_object(app, "grid_columns_value");
     app->appearance_grid_rows = ui_object(app, "grid_rows_value");
     app->appearance_wallpaper_color = ui_object(app, "wallpaper_color_input");
+    app->appearance_accent_color = ui_object(app, "accent_color_input");
     app->appearance_wallpaper_path = ui_object(app, "wallpaper_path_input");
     app->appearance_switches[0] = ui_object(app, "show_labels_switch");
     app->appearance_switches[1] = ui_object(app, "folders_switch");
@@ -1090,11 +1188,13 @@ static void wire_document(app_t *app)
     app->action_secondary = ui_object(app, "action_secondary");
     app->action_secondary_label = ui_object(app, "action_secondary_label");
     app->choice_row = ui_object(app, "choice_row");
+    app->choice2_row = ui_object(app, "choice2_row");
     app->adjust_row = ui_object(app, "adjust_row");
     app->adjust_label = ui_object(app, "adjust_label");
     app->adjust_value = ui_object(app, "adjust_value");
     app->input_card = ui_object(app, "input_card");
     app->input_label = ui_object(app, "input_label");
+    app->input_secondary_label = ui_object(app, "input_secondary_label");
     app->input_value = ui_object(app, "input_value");
     app->input_secret = ui_object(app, "input_secret");
     app->input_apply = ui_object(app, "input_apply");
@@ -1106,6 +1206,10 @@ static void wire_document(app_t *app)
         app->choice_buttons[index] = ui_object(app, name);
         (void)snprintf(name, sizeof(name), "choice_%d_label", index);
         app->choice_labels[index] = ui_object(app, name);
+        (void)snprintf(name, sizeof(name), "choice2_%d", index);
+        app->choice2_buttons[index] = ui_object(app, name);
+        (void)snprintf(name, sizeof(name), "choice2_%d_label", index);
+        app->choice2_labels[index] = ui_object(app, name);
     }
     app->calibration_button = ui_object(app, "calibration_button");
     for(index = 0; index < PANEL_COUNT; index++) {
@@ -1124,20 +1228,17 @@ static void wire_document(app_t *app)
             lv_obj_set_style_text_font(icon, &lv_font_montserrat_16, LV_PART_MAIN);
     }
     {
-        lv_obj_t *home_content = ui_object(app, "home_content");
-        lv_obj_t *detail_content = ui_object(app, "detail_content");
-        lv_obj_t *appearance_content = ui_object(app, "appearance_content");
-        if(home_content != NULL) {
-            lv_obj_set_scroll_dir(home_content, LV_DIR_VER);
-            lv_obj_set_scrollbar_mode(home_content, LV_SCROLLBAR_MODE_AUTO);
+        if(app->home_page != NULL) {
+            lv_obj_set_scroll_dir(app->home_page, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(app->home_page, LV_SCROLLBAR_MODE_AUTO);
         }
-        if(detail_content != NULL) {
-            lv_obj_set_scroll_dir(detail_content, LV_DIR_VER);
-            lv_obj_set_scrollbar_mode(detail_content, LV_SCROLLBAR_MODE_AUTO);
+        if(app->detail_page != NULL) {
+            lv_obj_set_scroll_dir(app->detail_page, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(app->detail_page, LV_SCROLLBAR_MODE_AUTO);
         }
-        if(appearance_content != NULL) {
-            lv_obj_set_scroll_dir(appearance_content, LV_DIR_VER);
-            lv_obj_set_scrollbar_mode(appearance_content,
+        if(app->appearance_page != NULL) {
+            lv_obj_set_scroll_dir(app->appearance_page, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(app->appearance_page,
                                       LV_SCROLLBAR_MODE_AUTO);
         }
     }
@@ -1163,10 +1264,15 @@ static int load_ui_document(app_t *app)
 static void set_choice_selected(lv_obj_t *object, bool selected)
 {
     lv_color_t color;
+    lv_obj_t *label;
     if(object == NULL) return;
     color = lv_color_hex(selected ? 0x356ae6U : 0xeef2f8U);
     if(!lv_color_eq(lv_obj_get_style_bg_color(object, LV_PART_MAIN), color))
         lv_obj_set_style_bg_color(object, color, LV_PART_MAIN);
+    label = lv_obj_get_child(object, 0);
+    if(label != NULL)
+        lv_obj_set_style_text_color(
+            label, lv_color_hex(selected ? 0xffffffU : 0x28405fU), LV_PART_MAIN);
 }
 
 static void set_switch_value(lv_obj_t *object, bool selected)
@@ -1210,10 +1316,24 @@ static void appearance_update_visible(app_t *app)
                         strcmp(app->desktop.layout, "desktop") == 0);
     set_choice_selected(app->appearance_layout[3],
                         strcmp(app->desktop.layout, "kiosk") == 0);
+    set_choice_selected(app->appearance_layout[4],
+                        strcmp(app->desktop.layout, "embedded") == 0);
+    set_choice_selected(app->appearance_sort[0],
+                        strcmp(app->desktop.sort, "name") == 0);
+    set_choice_selected(app->appearance_sort[1],
+                        strcmp(app->desktop.sort, "component") == 0);
     set_choice_selected(app->appearance_navigation[0],
                         strcmp(app->desktop.navigation_mode, "buttons") == 0);
     set_choice_selected(app->appearance_navigation[1],
                         strcmp(app->desktop.navigation_mode, "pill") == 0);
+    set_choice_selected(app->appearance_navigation_visibility[0],
+                        strcmp(app->desktop.navigation_visibility, "always") == 0);
+    set_choice_selected(app->appearance_navigation_visibility[1],
+                        strcmp(app->desktop.navigation_visibility, "auto-hide") == 0);
+    set_choice_selected(app->appearance_status_visibility[0],
+                        strcmp(app->desktop.status_visibility, "always") == 0);
+    set_choice_selected(app->appearance_status_visibility[1],
+                        strcmp(app->desktop.status_visibility, "auto-hide") == 0);
     set_choice_selected(app->appearance_orientation[0],
                         strcmp(app->desktop.orientation, "auto") == 0);
     set_choice_selected(app->appearance_orientation[1],
@@ -1232,6 +1352,8 @@ static void appearance_update_visible(app_t *app)
     set_label_text(app->appearance_grid_rows, text);
     set_textarea_text(app->appearance_wallpaper_color,
                       app->desktop.wallpaper_color);
+    set_textarea_text(app->appearance_accent_color,
+                      app->desktop.accent_color);
     set_textarea_text(app->appearance_wallpaper_path,
                       app->desktop.wallpaper_path);
     app->applying_snapshot = true;
@@ -1256,13 +1378,28 @@ static void set_choice_labels(app_t *app, const char *a, const char *b,
     }
 }
 
+static void set_choice2_labels(app_t *app, const char *a, const char *b,
+                               const char *c, const char *d)
+{
+    const char *values[4] = {a, b, c, d};
+    int index;
+    for(index = 0; index < 4; index++) {
+        set_label_text(app->choice2_labels[index], values[index]);
+        set_hidden(app->choice2_buttons[index],
+                   values[index] == NULL || values[index][0] == '\0');
+    }
+}
+
 static void setting_item_event(lv_event_t *event)
 {
     setting_item_t *item = lv_event_get_user_data(event);
     lv_obj_t *current = lv_event_get_current_target(event);
     lv_obj_t *parent;
     uint32_t index;
+    bool expand;
     if(active_app == NULL || item == NULL) return;
+    expand = strcmp(active_app->selected_item, item->id) != 0 ||
+             !lv_obj_has_state(current, LV_STATE_USER_1);
     copy_text(active_app->selected_item, sizeof(active_app->selected_item), item->id);
     if(active_app->input_value != NULL)
         set_textarea_text(active_app->input_value, item->label);
@@ -1270,13 +1407,35 @@ static void setting_item_event(lv_event_t *event)
     if(parent != NULL) {
         for(index = 0U; index < lv_obj_get_child_count(parent); index++) {
             lv_obj_t *row = lv_obj_get_child(parent, (int32_t)index);
+            lv_obj_t *text = lv_obj_get_child(row, 0);
+            lv_obj_t *marker = lv_obj_get_child(row, 1);
             lv_obj_set_style_bg_color(row, lv_color_hex(0xffffff), LV_PART_MAIN);
             lv_obj_set_style_border_color(row, lv_color_hex(0xdfe4ee), LV_PART_MAIN);
+            lv_obj_remove_state(row, LV_STATE_USER_1);
+            lv_obj_set_height(row, 62);
+            if(text != NULL && lv_obj_get_child_count(text) >= 2U) {
+                lv_label_set_long_mode(lv_obj_get_child(text, 0), LV_LABEL_LONG_DOT);
+                lv_label_set_long_mode(lv_obj_get_child(text, 1), LV_LABEL_LONG_DOT);
+            }
+            if(marker != NULL) lv_label_set_text(marker, LV_SYMBOL_RIGHT);
         }
     }
     if(current != NULL) {
         lv_obj_set_style_bg_color(current, lv_color_hex(0xe7edfb), LV_PART_MAIN);
         lv_obj_set_style_border_color(current, lv_color_hex(0x7d9fe9), LV_PART_MAIN);
+        if(expand) {
+            lv_obj_t *text = lv_obj_get_child(current, 0);
+            lv_obj_add_state(current, LV_STATE_USER_1);
+            lv_obj_set_height(current, 92);
+            if(text != NULL && lv_obj_get_child_count(text) >= 2U) {
+                lv_label_set_long_mode(lv_obj_get_child(text, 0), LV_LABEL_LONG_WRAP);
+                lv_label_set_long_mode(lv_obj_get_child(text, 1), LV_LABEL_LONG_WRAP);
+            }
+        }
+        {
+            lv_obj_t *marker = lv_obj_get_child(current, 1);
+            if(marker != NULL) lv_label_set_text(marker, LV_SYMBOL_OK);
+        }
     }
 }
 
@@ -1337,12 +1496,14 @@ static void update_panel_controls(app_t *app)
     bool primary = false;
     bool secondary = false;
     bool choices = false;
+    bool choices2 = false;
     bool adjustment = false;
     bool inputs = false;
     bool secret = false;
     const char *primary_label = "";
     const char *secondary_label = "";
     const char *input_label = "";
+    const char *secondary_input_label = "";
     const char *apply_label = "应用";
 
     switch(app->active_panel) {
@@ -1360,17 +1521,27 @@ static void update_panel_controls(app_t *app)
         set_choice_labels(app, "配对", "连接", "断开", "忘记");
         break;
     case PANEL_AUDIO:
-        primary = adjustment = true;
+        primary = adjustment = choices = inputs = secret = true;
         primary_label = "使用选中的音频输出";
+        input_label = "Squeezelite 服务器（留空为自动发现）";
+        secondary_input_label = "播放器名称";
+        apply_label = "保存播放器配置";
+        set_choice_labels(app, "启用播放器", "停用播放器", "", "");
         set_label_text(app->adjust_label, "播放音量");
         (void)snprintf(value, sizeof(value), "%d%%", app->audio_volume);
         set_label_text(app->adjust_value, value);
         break;
     case PANEL_DISPLAY:
-        choices = app->physical_rotation_writable;
-        set_choice_labels(app, "正常", "右转", "倒置", "左转");
+        choices = inputs = true;
+        choices2 = app->physical_rotation_writable;
+        input_label = "安全区域（auto 或 top,right,bottom,left）";
+        apply_label = "应用安全区域";
+        set_choice_labels(app, "手机", "单应用", "桌面", "");
+        set_choice2_labels(app, "面板正常", "面板右转", "面板倒置", "面板左转");
         break;
     case PANEL_INPUT:
+        choices = true;
+        set_choice_labels(app, "English", "中文拼音", "数字", "符号");
         break;
     case PANEL_STORAGE:
         primary = choices = true;
@@ -1395,6 +1566,10 @@ static void update_panel_controls(app_t *app)
         choices = app->hal_mutable;
         set_choice_labels(app, "使用选中提供者", "恢复该域默认", "", "");
         break;
+    case PANEL_ROLES:
+        choices = true;
+        set_choice_labels(app, "使用选中提供者", "恢复该角色默认", "", "");
+        break;
     case PANEL_DEVELOPER:
         primary = secondary = adjustment = true;
         primary_label = app->developer_debug ? "关闭调试叠加层" : "打开调试叠加层";
@@ -1409,17 +1584,56 @@ static void update_panel_controls(app_t *app)
     set_label_text(app->action_primary_label, primary_label);
     set_label_text(app->action_secondary_label, secondary_label);
     set_label_text(app->input_label, input_label);
+    set_label_text(app->input_secondary_label, secondary_input_label);
     set_label_text(app->input_apply_label, apply_label);
     set_hidden(app->action_primary, !primary);
     set_hidden(app->action_secondary, !secondary);
     set_hidden(app->choice_row, !choices);
+    set_hidden(app->choice2_row, !choices2);
     set_hidden(app->adjust_row, !adjustment);
     set_hidden(app->input_card, !inputs);
     set_hidden(app->input_secret, !secret);
+    set_hidden(app->input_secondary_label, !secret || secondary_input_label[0] == '\0');
     set_hidden(app->input_value, app->active_panel == PANEL_WIFI);
     set_hidden(app->input_apply, app->active_panel == PANEL_WIFI);
     if(inputs && app->active_panel == PANEL_REGIONAL)
         set_textarea_text(app->input_value, app->regional_timezone);
+    else if(inputs && app->active_panel == PANEL_DISPLAY)
+        set_textarea_text(app->input_value, app->display_insets);
+    else if(inputs && app->active_panel == PANEL_AUDIO) {
+        set_textarea_text(app->input_value, app->audio_player_server);
+        set_textarea_text(app->input_secret, app->audio_player_name);
+    }
+    if(app->input_secret != NULL)
+        lv_textarea_set_password_mode(app->input_secret,
+                                      app->active_panel == PANEL_WIFI);
+    if(app->input_value != NULL)
+        lv_textarea_set_placeholder_text(app->input_value,
+            app->active_panel == PANEL_DISPLAY ? "auto / 0,0,42,0" :
+            app->active_panel == PANEL_AUDIO ? "192.168.1.2" :
+            app->active_panel == PANEL_REGIONAL ? "Asia/Shanghai" : "输入值");
+    if(app->input_secret != NULL)
+        lv_textarea_set_placeholder_text(app->input_secret,
+            app->active_panel == PANEL_AUDIO ? "MSYS Audio" : "Wi-Fi 密码");
+    if(app->active_panel == PANEL_DISPLAY) {
+        set_choice_selected(app->choice_buttons[0], strcmp(app->display_profile, "mobile") == 0);
+        set_choice_selected(app->choice_buttons[1], strcmp(app->display_profile, "kiosk") == 0);
+        set_choice_selected(app->choice_buttons[2], strcmp(app->display_profile, "desktop") == 0);
+        set_choice_selected(app->choice2_buttons[0], strcmp(app->physical_rotation, "normal") == 0);
+        set_choice_selected(app->choice2_buttons[1], strcmp(app->physical_rotation, "right") == 0);
+        set_choice_selected(app->choice2_buttons[2], strcmp(app->physical_rotation, "inverted") == 0);
+        set_choice_selected(app->choice2_buttons[3], strcmp(app->physical_rotation, "left") == 0);
+    }
+    else if(app->active_panel == PANEL_INPUT) {
+        set_choice_selected(app->choice_buttons[0], strcmp(app->input_mode, "en") == 0);
+        set_choice_selected(app->choice_buttons[1], strcmp(app->input_mode, "zh") == 0);
+        set_choice_selected(app->choice_buttons[2], strcmp(app->input_mode, "numeric") == 0);
+        set_choice_selected(app->choice_buttons[3], strcmp(app->input_mode, "symbols") == 0);
+    }
+    else if(app->active_panel == PANEL_AUDIO) {
+        set_choice_selected(app->choice_buttons[0], app->audio_player_enabled);
+        set_choice_selected(app->choice_buttons[1], !app->audio_player_enabled);
+    }
     if(panel->toggle_available && app->toggle != NULL) {
         app->applying_snapshot = true;
         set_switch_value(app->toggle, panel->toggle_value);
@@ -1430,7 +1644,8 @@ static void update_panel_controls(app_t *app)
     if(app->active_panel == PANEL_AUDIO)
         software_set_disabled(app->action_primary, app->selected_item[0] == '\0');
     if(app->active_panel == PANEL_WIFI || app->active_panel == PANEL_BLUETOOTH ||
-       app->active_panel == PANEL_STORAGE || app->active_panel == PANEL_HAL) {
+       app->active_panel == PANEL_STORAGE || app->active_panel == PANEL_HAL ||
+       app->active_panel == PANEL_ROLES) {
         int index;
         for(index = 0; index < 4; index++)
             software_set_disabled(app->choice_buttons[index],
@@ -1654,12 +1869,24 @@ static bool apply_appearance_field(app_t *app, const char *key,
     if(strcmp(field, "navigation_mode") == 0)
         return replace_text(app->desktop.navigation_mode,
                             sizeof(app->desktop.navigation_mode), value);
+    if(strcmp(field, "navigation_visibility") == 0)
+        return replace_text(app->desktop.navigation_visibility,
+                            sizeof(app->desktop.navigation_visibility), value);
+    if(strcmp(field, "status_visibility") == 0)
+        return replace_text(app->desktop.status_visibility,
+                            sizeof(app->desktop.status_visibility), value);
     if(strcmp(field, "wallpaper_color") == 0)
         return replace_text(app->desktop.wallpaper_color,
                             sizeof(app->desktop.wallpaper_color), value);
+    if(strcmp(field, "accent_color") == 0)
+        return replace_text(app->desktop.accent_color,
+                            sizeof(app->desktop.accent_color), value);
     if(strcmp(field, "wallpaper_path") == 0)
         return replace_text(app->desktop.wallpaper_path,
                             sizeof(app->desktop.wallpaper_path), value);
+    if(strcmp(field, "sort") == 0)
+        return replace_text(app->desktop.sort,
+                            sizeof(app->desktop.sort), value);
     if(strcmp(field, "icon_size") == 0) {
         parsed = atoi(value);
         if(app->desktop.icon_size == parsed) return false;
@@ -1748,6 +1975,21 @@ static void apply_field(app_t *app, char *key, char *value)
         app->snapshot_changed = true;
         return;
     }
+    if(strcmp(key, "audio.player.enabled") == 0) {
+        app->audio_player_enabled = parse_bool(value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "audio.player.server") == 0) {
+        copy_text(app->audio_player_server, sizeof(app->audio_player_server), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "audio.player.name") == 0) {
+        copy_text(app->audio_player_name, sizeof(app->audio_player_name), value);
+        app->snapshot_changed = true;
+        return;
+    }
     if(strcmp(key, "developer.fps") == 0) {
         app->developer_fps = clamp_integer(atoi(value), 5, 60);
         app->snapshot_changed = true;
@@ -1770,6 +2012,26 @@ static void apply_field(app_t *app, char *key, char *value)
     }
     if(strcmp(key, "regional.timezone") == 0) {
         copy_text(app->regional_timezone, sizeof(app->regional_timezone), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "display.profile") == 0) {
+        copy_text(app->display_profile, sizeof(app->display_profile), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "display.insets") == 0) {
+        copy_text(app->display_insets, sizeof(app->display_insets), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "display.physical.rotation") == 0) {
+        copy_text(app->physical_rotation, sizeof(app->physical_rotation), value);
+        app->snapshot_changed = true;
+        return;
+    }
+    if(strcmp(key, "input.mode") == 0) {
+        copy_text(app->input_mode, sizeof(app->input_mode), value);
         app->snapshot_changed = true;
         return;
     }

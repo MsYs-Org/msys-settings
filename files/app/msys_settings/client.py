@@ -119,6 +119,14 @@ class SettingsClient:
             timeout=8.0,
         )
 
+    def set_input_method_mode(self, mode: str) -> dict[str, Any]:
+        return self.rpc.call(
+            INPUT_METHOD,
+            "set_mode",
+            {"mode": mode},
+            timeout=8.0,
+        )
+
     def audio_get_state(self, *, refresh: bool = False) -> dict[str, Any]:
         return self.rpc.call(
             AUDIO_MANAGER,

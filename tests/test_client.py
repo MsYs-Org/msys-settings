@@ -91,15 +91,18 @@ class SettingsClientTests(unittest.TestCase):
     def test_input_method_uses_replaceable_typed_role(self) -> None:
         self.client.input_method_status()
         self.client.toggle_input_method()
+        self.client.set_input_method_mode("zh")
         self.assertEqual(
             [call[:2] for call in self.rpc.calls],
             [
                 ("role:input-method", "status"),
                 ("role:input-method", "toggle"),
+                ("role:input-method", "set_mode"),
             ],
         )
         self.assertTrue(self.rpc.calls[0][3]["idempotent"])
         self.assertNotIn("idempotent", self.rpc.calls[1][3])
+        self.assertEqual(self.rpc.calls[2][2], {"mode": "zh"})
 
     def test_audio_uses_only_the_replaceable_audio_manager_role(self) -> None:
         self.client.audio_get_state(refresh=True)

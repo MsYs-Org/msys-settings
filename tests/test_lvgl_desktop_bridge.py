@@ -20,6 +20,8 @@ class DesktopModel:
             "grid_rows": 0,
             "acrylic": False,
             "navigation_mode": "pill",
+            "navigation_visibility": "always",
+            "status_visibility": "always",
             "icon_spacing": 8,
             "folders_enabled": True,
             "large_folders_enabled": True,
@@ -83,6 +85,8 @@ class LvglDesktopBridgeTests(unittest.TestCase):
         self.assertEqual(fields["appearance.contract.available"], "1")
         self.assertEqual(fields["appearance.preference.layout"], "profile")
         self.assertEqual(fields["appearance.preference.navigation_mode"], "pill")
+        self.assertEqual(fields["appearance.preference.navigation_visibility"], "always")
+        self.assertEqual(fields["appearance.preference.status_visibility"], "always")
         self.assertEqual(fields["appearance.preference.grid_columns"], 0)
         self.assertEqual(fields["appearance.preference.icon_spacing"], 8)
         self.assertEqual(fields["appearance.preference.wallpaper_path"], "")
@@ -96,6 +100,8 @@ class LvglDesktopBridgeTests(unittest.TestCase):
             ("appearance_set_layout", "mobile"),
             ("appearance_set_layout", "profile"),
             ("appearance_set_navigation_mode", "buttons"),
+            ("appearance_set_navigation_visibility", "auto-hide"),
+            ("appearance_set_status_visibility", "auto-hide"),
             ("grid_columns", "4"),
             ("grid_rows", "5"),
             ("icon_size", "72"),
@@ -111,6 +117,8 @@ class LvglDesktopBridgeTests(unittest.TestCase):
         self.assertEqual(len(writes), len(actions))
         self.assertEqual(model.preferences["layout"], "profile")
         self.assertEqual(model.preferences["navigation_mode"], "buttons")
+        self.assertEqual(model.preferences["navigation_visibility"], "auto-hide")
+        self.assertEqual(model.preferences["status_visibility"], "auto-hide")
         self.assertEqual(model.preferences["grid_columns"], "4")
         self.assertEqual(model.preferences["icon_size"], "72")
         self.assertEqual(model.preferences["wallpaper_color"], "#EAF1FF")

@@ -1,5 +1,22 @@
 # MSYS Settings
 
+## 0.5.3 scroll-first complete native Settings
+
+The production LVGL Settings frontend now scrolls each complete page as one
+surface, including its title and controls, so small workareas cannot leave
+fixed controls covering long content.  Compact device/provider rows remain
+ellipsized at rest and expand in place when selected; explanatory text wraps
+inside the vertically scrolling page without adding an idle animation timer.
+
+The migration now restores real role selection, input-method mode selection,
+POSIX time-zone choices, logical display profile/insets, physical rotation,
+Squeezelite player configuration, system overview, launcher sort/accent and
+the contract-backed `navigation_visibility` / `status_visibility` settings.
+Every mutation still goes through the existing typed role, HAL or Core API;
+missing hardware/providers remain explicitly unavailable.  Navigation style
+(`buttons` / `pill`) and both system-bar visibility modes are live launcher
+preferences and do not restart X11 or the display provider.
+
 ## 0.5.2 bounded native toast overlay
 
 Settings and Software Center now own one persistent C/LVGL toast overlay above

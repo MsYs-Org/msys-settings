@@ -998,6 +998,8 @@ class NormalizationTests(unittest.TestCase):
         self.assertEqual(preferences["icon_size"], 80)
         self.assertEqual(preferences["wallpaper_path"], "")
         self.assertEqual(preferences["navigation_mode"], "pill")
+        self.assertEqual(preferences["navigation_visibility"], "always")
+        self.assertEqual(preferences["status_visibility"], "always")
         self.assertEqual(preferences["icon_spacing"], 8)
         self.assertTrue(preferences["folders_enabled"])
         self.assertTrue(preferences["large_folders_enabled"])
@@ -1013,6 +1015,8 @@ class NormalizationTests(unittest.TestCase):
                 "layout": "embedded",
                 "wallpaper_path": "/media/msys/亮色壁纸",
                 "navigation_mode": "buttons",
+                "navigation_visibility": "auto-hide",
+                "status_visibility": "auto-hide",
                 "icon_spacing": "24",
                 "folders_enabled": False,
                 "large_folders_enabled": False,
@@ -1024,6 +1028,8 @@ class NormalizationTests(unittest.TestCase):
                 "layout": "embedded",
                 "wallpaper_path": "/media/msys/亮色壁纸",
                 "navigation_mode": "buttons",
+                "navigation_visibility": "auto-hide",
+                "status_visibility": "auto-hide",
                 "icon_spacing": 24,
                 "folders_enabled": False,
                 "large_folders_enabled": False,
@@ -1042,6 +1048,8 @@ class NormalizationTests(unittest.TestCase):
             validate_desktop_preferences({**preferences, "icon_size": True})
         with self.assertRaises(ValueError):
             validate_desktop_preferences({**preferences, "navigation_mode": "keys"})
+        with self.assertRaises(ValueError):
+            validate_desktop_preferences({**preferences, "navigation_visibility": "hidden"})
         with self.assertRaises(ValueError):
             validate_desktop_preferences({**preferences, "icon_spacing": 49})
         for invalid_path in (
