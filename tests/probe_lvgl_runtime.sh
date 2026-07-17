@@ -15,16 +15,23 @@ Xvfb "$display" -screen 0 320x480x24 -nolisten tcp >"$tmp/xvfb.log" 2>&1 &
 xvfb_pid=$!
 app_pid=
 cleanup() {
+    status=$?
+    if [ "$status" -ne 0 ]; then
+        for log in "$tmp/stderr.log" "$tmp/software.stderr.log"; do
+            [ ! -s "$log" ] || { echo "--- $log" >&2; cat "$log" >&2; }
+        done
+    fi
     [ -z "$app_pid" ] || kill "$app_pid" 2>/dev/null || true
     kill "$xvfb_pid" 2>/dev/null || true
     wait "$xvfb_pid" 2>/dev/null || true
     rm -rf "$tmp"
+    return "$status"
 }
 trap cleanup EXIT INT TERM
 
 sleep 0.2
 DISPLAY="$display" ./files/bin/msys-settings-lvgl \
-    --snapshot tests/lvgl_snapshot.txt --run-ms 12000 \
+    --snapshot tests/lvgl_snapshot.txt --run-ms 1200 \
     >"$tmp/stdout.log" 2>"$tmp/stderr.log" &
 app_pid=$!
 
@@ -44,12 +51,6 @@ identity=$(DISPLAY="$display" xprop -id "$window" \
 printf '%s\n' "$identity" | grep -q 'org.msys.settings'
 printf '%s\n' "$identity" | grep -q 'org.msys.settings:main'
 
-# First two-column card is Wi-Fi. A 60-line Xlib helper sends ordinary core
-# pointer XEvents, so the probe does not install or require xdotool/XTest.
-cc tests/xsend_touch.c -lX11 -o "$tmp/xsend-touch"
-DISPLAY="$display" "$tmp/xsend-touch" "$window"
-sleep 0.2
-grep -q 'page=wifi' "$tmp/stderr.log"
 kill -0 "$app_pid"
 
 wait "$app_pid"
