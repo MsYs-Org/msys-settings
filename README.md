@@ -1,5 +1,12 @@
 # MSYS Settings
 
+## 0.5.4 one production frontend per Settings surface
+
+`main` and `software-center` are now the only production components.  Both use
+the same native LVGL renderer and typed SettingsModel bridge; the obsolete
+`software-center-tk` component was removed so direct intents and launcher
+activation cannot select different user interfaces for the same surface.
+
 ## 0.5.3 scroll-first complete native Settings
 
 The production LVGL Settings frontend now scrolls each complete page as one
@@ -70,11 +77,9 @@ locally inferred registry change is treated as success.  The configured
 update source comes from `MSYS_UPDATE_SOURCE` and an empty source disables the
 update actions visibly.
 
-The prior Tk implementation remains available as the non-launchable
-`org.msys.settings:software-center-tk` fallback.  The package remains
-dependency-free with respect to systemd, host D-Bus, and distribution package
-managers.  This change does not modify the display provider or dirty-region
-logic.
+The package remains dependency-free with respect to systemd, host D-Bus, and
+distribution package managers.  This change does not modify the display
+provider or dirty-region logic.
 
 ## 0.4.0 dynamic LVGL Settings
 

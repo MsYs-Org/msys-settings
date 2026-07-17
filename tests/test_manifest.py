@@ -20,7 +20,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.5.3")
+        self.assertEqual(__version__, "0.5.4")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
@@ -155,8 +155,8 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue(software["activation"]["launchable"])
         self.assertEqual(software["env"]["MSYS_SETTINGS_MODE"], "software-center")
         self.assertEqual(
-            software["x-msys-ui-provider"]["fallback_component"],
-            "org.msys.settings:software-center-tk",
+            software["x-msys-ui-provider"],
+            {"id": "lvgl", "default": True},
         )
         software_ui = software["exec"][software["exec"].index("--ui") + 1]
         self.assertEqual(
@@ -183,12 +183,10 @@ class ManifestTests(unittest.TestCase):
             },
             {"apps", "updates", "details", "uninstall"},
         )
-        software_tk = next(
-            item for item in manifest["components"]
-            if item["id"] == "software-center-tk"
+        self.assertNotIn(
+            "software-center-tk",
+            {item["id"] for item in manifest["components"]},
         )
-        self.assertEqual(software_tk["runtime"], "tk")
-        self.assertFalse(software_tk["activation"]["launchable"])
 
         native = component
         self.assertEqual(native["runtime"], "native")
