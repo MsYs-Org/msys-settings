@@ -3,8 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 import threading
 import unittest
+from unittest.mock import patch
 
 from lvgl_bridge import Bridge
+from msys_settings.model import OperationResult
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,6 +59,54 @@ class LvglSettingsBridgeTests(unittest.TestCase):
         bridge.collect_panel("developer")
         self.assertEqual(calls, ["collect_developer"])
         self.assertEqual(emitted, [{"collector": "collect_developer"}])
+
+    def test_wifi_scan_poll_publishes_results_without_full_hal_rediscovery(self) -> None:
+        bridge, emitted = self._bare_bridge()
+        calls: list[tuple[str, bool]] = []
+        responses = [
+            {"available": True, "provider": "linux", "mutable": ["action"],
+             "values": {"scan_results": []}},
+            {"available": True, "provider": "linux", "mutable": ["action"],
+             "values": {"scan_results": [
+                 {"ssid": "MEILIN", "signal_dbm": -48, "flags": "[WPA2]"},
+             ]}},
+        ]
+
+        class Model:
+            def hal_get_state(self, device: str, *, refresh: bool = False) -> OperationResult:
+                calls.append((device, refresh))
+                return OperationResult(True, responses.pop(0))
+
+        bridge.model = Model()  # type: ignore[assignment]
+        bridge._radio = {"wifi": {"device": "network:wlan0", "values": {}}}
+        bridge._wifi_scan_generation = 7
+        bridge.collect_wifi = lambda: self.fail(  # type: ignore[method-assign]
+            "scan polling must not rediscover the complete HAL catalog"
+        )
+
+        with patch("lvgl_bridge.time.sleep", return_value=None):
+            bridge._finish_wifi_scan(7)
+
+        self.assertEqual(calls, [
+            ("network:wlan0", True),
+            ("network:wlan0", True),
+        ])
+        self.assertEqual([item["items.count"] for item in emitted], [0, 1])
+        self.assertEqual(emitted[-1]["items.0.label"], "MEILIN")
+
+    def test_stale_wifi_scan_poll_stops_before_reading_provider(self) -> None:
+        bridge, emitted = self._bare_bridge()
+        bridge._radio = {"wifi": {"device": "network:wlan0"}}
+        bridge._wifi_scan_generation = 8
+
+        class Model:
+            def hal_get_state(self, device: str, *, refresh: bool = False) -> OperationResult:
+                raise AssertionError("stale generation must not read HAL")
+
+        bridge.model = Model()  # type: ignore[assignment]
+        with patch("lvgl_bridge.time.sleep", return_value=None):
+            bridge._finish_wifi_scan(7)
+        self.assertEqual(emitted, [])
 
     def test_p0_actions_use_existing_model_contracts(self) -> None:
         source = (ROOT / "files/app/lvgl_bridge.py").read_text(encoding="utf-8")

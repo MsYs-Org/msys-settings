@@ -18,6 +18,18 @@ class InputClient:
         self.calls.append("toggle")
         return dict(self.payload)
 
+    def show_input_method(self):
+        self.calls.append("show")
+        response = dict(self.payload)
+        response["visible"] = True
+        return response
+
+    def hide_input_method(self):
+        self.calls.append("hide")
+        response = dict(self.payload)
+        response["visible"] = False
+        return response
+
     def set_input_method_mode(self, mode):
         self.calls.append(("set_mode", mode))
         response = dict(self.payload)
@@ -50,6 +62,23 @@ class InputMethodModelTests(unittest.TestCase):
         result = model.toggle_input_method()
         self.assertFalse(result.ok)
         self.assertEqual(result.code, "INPUT_METHOD_BAD_RESPONSE")
+
+    def test_explicit_show_and_hide_do_not_depend_on_stale_toggle_state(self) -> None:
+        client = InputClient({
+            "schema": "msys.input-method-state.v1",
+            "visible": False,
+            "layout": "letters",
+            "locale": "zh-CN",
+            "mode": "zh",
+        })
+        model = SettingsModel(client)  # type: ignore[arg-type]
+        shown = model.show_input_method()
+        hidden = model.hide_input_method()
+        self.assertTrue(shown.ok)
+        self.assertTrue(shown.data["visible"])
+        self.assertTrue(hidden.ok)
+        self.assertFalse(hidden.data["visible"])
+        self.assertEqual(client.calls, ["show", "hide"])
 
     def test_mode_selection_uses_existing_role_method(self) -> None:
         client = InputClient({

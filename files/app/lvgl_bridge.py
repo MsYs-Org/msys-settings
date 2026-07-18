@@ -63,7 +63,16 @@ class Bridge:
             if generation != self._wifi_scan_generation:
                 return
             try:
-                fields = self.collect_wifi()
+                current = self._radio.get("wifi", {})
+                device = str(current.get("device") or "")
+                if not device:
+                    raise RuntimeError("Wi-Fi device disappeared during scan")
+                result = self.model.hal_get_state(device, refresh=True)
+                if not result.ok:
+                    raise RuntimeError(self._failure(result))
+                state = radio_state_summary(result.data)
+                self._radio["wifi"] = {"device": device, **state}
+                fields = self._wifi_item_fields(state)
             except Exception as exc:
                 self.emit({"toast": f"Wi-Fi 扫描结果读取失败：{exc}"})
                 return
@@ -74,6 +83,31 @@ class Bridge:
                 count = 0
             if count > 0:
                 return
+
+    def _wifi_item_fields(self, state: dict[str, Any]) -> dict[str, object]:
+        """Render the cached network list without rediscovering every HAL domain."""
+
+        try:
+            networks = wifi_network_rows(state.get("values", {}))
+        except (TypeError, ValueError):
+            networks = []
+        rows = []
+        for row in networks:
+            ssid = str(row.get("ssid") or "")
+            network_id = row.get("network_id")
+            signal = row.get("signal_dbm")
+            security = str(row.get("security") or "")
+            saved = " · 已保存" if row.get("configured") else ""
+            identifier = (
+                f"{network_id if isinstance(network_id, int) and not isinstance(network_id, bool) else ''}"
+                f"\x1e{ssid}"
+            )
+            rows.append((
+                identifier,
+                ssid,
+                f"{signal if isinstance(signal, int) else '—'} dBm · {security}{saved}",
+            ))
+        return self._item_fields("wifi", rows)
 
     def emit(self, fields: dict[str, object]) -> None:
         with self._write_lock:
@@ -356,20 +390,7 @@ class Bridge:
     def collect_wifi(self) -> dict[str, object]:
         fields = self.collect_hal()
         state = self._radio.get("wifi", {})
-        try:
-            networks = wifi_network_rows(state.get("values", {}))
-        except (TypeError, ValueError):
-            networks = []
-        rows = []
-        for row in networks:
-            ssid = str(row.get("ssid") or "")
-            network_id = row.get("network_id")
-            signal = row.get("signal_dbm")
-            security = str(row.get("security") or "")
-            saved = " · 已保存" if row.get("configured") else ""
-            identifier = f"{network_id if isinstance(network_id, int) and not isinstance(network_id, bool) else ''}\x1e{ssid}"
-            rows.append((identifier, ssid, f"{signal if isinstance(signal, int) else '—'} dBm · {security}{saved}"))
-        fields.update(self._item_fields("wifi", rows))
+        fields.update(self._wifi_item_fields(state))
         return fields
 
     def collect_bluetooth(self) -> dict[str, object]:
@@ -1131,16 +1152,22 @@ class Bridge:
                     return
             result = self.model.hal_set_state(device, changes)
             self.emit({"toast": "Wi-Fi 操作完成" if result.ok else f"Wi-Fi 操作失败：{self._failure(result)}"})
-            self.emit(self.collect_wifi())
             if name == "wifi_scan" and result.ok:
                 self._wifi_scan_generation += 1
                 generation = self._wifi_scan_generation
+                # Keep the existing rows visible while the provider scans.
+                # A targeted get_state poll below replaces them as soon as the
+                # new result is ready; it does not probe every unrelated HAL
+                # domain on every 350 ms interval.
+                self.emit(self._wifi_item_fields(state))
                 threading.Thread(
                     target=self._finish_wifi_scan,
                     args=(generation,),
                     name="settings-lvgl-wifi-scan",
                     daemon=True,
                 ).start()
+            else:
+                self.emit(self.collect_wifi())
             return
         if name == "bluetooth_scan" or name.startswith("bluetooth_") and name.removeprefix("bluetooth_") in {"pair", "connect", "disconnect", "forget"}:
             action = name.removeprefix("bluetooth_")
