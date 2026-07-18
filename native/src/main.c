@@ -1737,6 +1737,17 @@ static void update_visible(app_t *app)
             lv_obj_add_flag(app->home_page, LV_OBJ_FLAG_HIDDEN);
         if(app->detail_page != NULL)
             lv_obj_add_flag(app->detail_page, LV_OBJ_FLAG_HIDDEN);
+        fprintf(stderr,
+                "settings-lvgl: appearance geometry page=%p hidden=%d pos=%d,%d size=%dx%d children=%u status=%p\n",
+                (void *)app->appearance_page,
+                app->appearance_page != NULL &&
+                    lv_obj_has_flag(app->appearance_page, LV_OBJ_FLAG_HIDDEN),
+                app->appearance_page != NULL ? (int)lv_obj_get_x(app->appearance_page) : -1,
+                app->appearance_page != NULL ? (int)lv_obj_get_y(app->appearance_page) : -1,
+                app->appearance_page != NULL ? (int)lv_obj_get_width(app->appearance_page) : -1,
+                app->appearance_page != NULL ? (int)lv_obj_get_height(app->appearance_page) : -1,
+                app->appearance_page != NULL ? (unsigned)lv_obj_get_child_count(app->appearance_page) : 0U,
+                (void *)app->appearance_status);
         appearance_update_visible(app);
         return;
     }

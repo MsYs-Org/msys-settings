@@ -20,7 +20,7 @@ class ManifestTests(unittest.TestCase):
             r'(?m)^version\s*=\s*"([^"]+)"\s*$', project_text
         )
         self.assertIsNotNone(project_version)
-        self.assertEqual(__version__, "0.5.8")
+        self.assertEqual(__version__, "0.5.9")
         self.assertEqual(manifest["package"]["version"], __version__)
         self.assertEqual(project_version.group(1), __version__)
 
