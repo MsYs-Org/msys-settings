@@ -13,6 +13,7 @@ import json
 import os
 import sys
 import threading
+import time
 from typing import Any, Callable
 from urllib.parse import quote, unquote
 
@@ -46,6 +47,33 @@ class Bridge:
         self.update_source = os.environ.get("MSYS_UPDATE_SOURCE", "").strip()
         self._software_page = "apps"
         self._settings_page = "home"
+        self._wifi_scan_generation = 0
+
+    def _finish_wifi_scan(self, generation: int) -> None:
+        """Publish the asynchronous scan result without requiring a manual refresh.
+
+        The HAL starts a scan and returns before wpa_supplicant has populated
+        ``scan_results``.  A single immediate read therefore commonly produces
+        an empty list.  Keep this bounded and generation-checked so a later
+        scan cannot be overwritten by a late reply from an older one.
+        """
+
+        for _ in range(12):
+            time.sleep(0.35)
+            if generation != self._wifi_scan_generation:
+                return
+            try:
+                fields = self.collect_wifi()
+            except Exception as exc:
+                self.emit({"toast": f"Wi-Fi 扫描结果读取失败：{exc}"})
+                return
+            self.emit(fields)
+            try:
+                count = int(fields.get("items.count", 0))
+            except (TypeError, ValueError):
+                count = 0
+            if count > 0:
+                return
 
     def emit(self, fields: dict[str, object]) -> None:
         with self._write_lock:
@@ -150,6 +178,9 @@ class Bridge:
         fields["hal.detail"] = "\n".join(provider_rows) or "HAL 未报告任何硬件域"
         fields["hal.available"] = "1" if provider_rows else "0"
         fields["hal.mutable"] = "1" if mutable_domains else "0"
+        provider_items.sort(
+            key=lambda item: (item[0].split("\x1f", 1)[0], item[1].casefold())
+        )
         fields.update(self._item_fields("hal", provider_items))
         for panel, domain in (("wifi", "network"), ("bluetooth", "bluetooth")):
             try:
@@ -703,6 +734,7 @@ class Bridge:
                     component,
                     f"{name} · {'当前' if component == active else '候选'}",
                 ))
+        rows.sort(key=lambda item: (item[0].split("\x1f", 1)[0], item[1].casefold()))
         return {
             "roles.summary": f"{len(roles) if isinstance(roles, list) else 0} 个系统角色",
             "roles.detail": "\n".join(details) or "没有已注册角色",
@@ -755,12 +787,23 @@ class Bridge:
         if not isinstance(status_state, dict):
             status_state = {}
         debug_data = debug.data if debug.ok else {}
-        configured = debug_data.get("configured", debug_data)
+        # ch347_get_debug returns the typed envelope {schema, device, debug}.
+        # Older providers returned the debug object directly; accept both, but
+        # never treat the envelope itself as the configured state.
+        configured = debug_data.get("debug", debug_data)
         if not isinstance(configured, dict):
             configured = {}
         fps = status_state.get("fps", status_state.get("configured_fps", 60))
-        enabled = configured.get("enabled") is True
-        cursor = configured.get("cursor_enabled") is True
+        overlay = configured.get("overlay", {})
+        if not isinstance(overlay, dict):
+            overlay = {}
+        enabled = overlay.get("enabled") is True
+        cursor_state = configured.get("touch_cursor", {})
+        cursor = (
+            cursor_state.get("enabled") is True
+            if isinstance(cursor_state, dict)
+            else configured.get("cursor_enabled") is True
+        )
         counters = status_state.get("dirty", status_state.get("counters", {}))
         return {
             "developer.summary": f"{fps} FPS · {'调试开启' if enabled else '调试关闭'}",
@@ -772,6 +815,7 @@ class Bridge:
             "developer.fps": fps,
             "developer.debug": "1" if enabled else "0",
             "developer.cursor": "1" if cursor else "0",
+            "developer.overlay.available": "1" if configured.get("overlay") is not None else "0",
         }
 
     def collect_all(self) -> None:
@@ -1035,8 +1079,13 @@ class Bridge:
             self.emit({"toast": "播放器配置已更新" if result.ok else f"播放器配置失败：{self._failure(result)}"})
             self.emit(self.collect_audio())
             return
-        if name == "input_toggle":
-            result = self.model.toggle_input_method()
+        if name in {"input_toggle", "input_show", "input_hide"}:
+            if name == "input_show":
+                result = self.model.show_input_method()
+            elif name == "input_hide":
+                result = self.model.hide_input_method()
+            else:
+                result = self.model.toggle_input_method()
             self.emit({"toast": "输入法状态已更新" if result.ok else f"输入法不可用：{self._failure(result)}"})
             self.emit(self.collect_system())
             return
@@ -1083,6 +1132,15 @@ class Bridge:
             result = self.model.hal_set_state(device, changes)
             self.emit({"toast": "Wi-Fi 操作完成" if result.ok else f"Wi-Fi 操作失败：{self._failure(result)}"})
             self.emit(self.collect_wifi())
+            if name == "wifi_scan" and result.ok:
+                self._wifi_scan_generation += 1
+                generation = self._wifi_scan_generation
+                threading.Thread(
+                    target=self._finish_wifi_scan,
+                    args=(generation,),
+                    name="settings-lvgl-wifi-scan",
+                    daemon=True,
+                ).start()
             return
         if name == "bluetooth_scan" or name.startswith("bluetooth_") and name.removeprefix("bluetooth_") in {"pair", "connect", "disconnect", "forget"}:
             action = name.removeprefix("bluetooth_")
@@ -1166,14 +1224,31 @@ class Bridge:
             return
         if name in {"developer_debug_toggle", "developer_cursor_toggle"}:
             current = self.model.ch347_get_debug()
-            configured = current.data.get("configured", current.data) if current.ok else {}
+            configured = current.data.get("debug", current.data) if current.ok else {}
             if not isinstance(configured, dict):
                 configured = {}
-            request = (
-                {"enabled": configured.get("enabled") is not True}
-                if name == "developer_debug_toggle" else
-                {"cursor_enabled": configured.get("cursor_enabled") is not True}
-            )
+            if name == "developer_debug_toggle":
+                overlay = configured.get("overlay", {})
+                if not isinstance(overlay, dict):
+                    overlay = {}
+                # The provider validates a complete overlay object. Preserve
+                # defaults when talking to an older provider that omitted it.
+                overlay = {
+                    "enabled": overlay.get("enabled") is not True,
+                    "alpha": int(overlay.get("alpha", 176)),
+                    "scale": int(overlay.get("scale", 1)),
+                    "items": list(overlay.get("items", ["fps", "dirty", "bytes", "cpu"])),
+                    "interval_ms": int(overlay.get("interval_ms", 1000)),
+                }
+                request = {"overlay": overlay}
+            else:
+                cursor_state = configured.get("touch_cursor", {})
+                current_cursor = (
+                    cursor_state.get("enabled") is True
+                    if isinstance(cursor_state, dict)
+                    else configured.get("cursor_enabled") is True
+                )
+                request = {"cursor_enabled": not current_cursor}
             result = self.model.ch347_set_debug(request)
             self.emit({"toast": "调试显示已更新" if result.ok else f"调试设置失败：{self._failure(result)}"})
             self.emit(self.collect_developer())

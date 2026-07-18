@@ -119,6 +119,18 @@ class SettingsClient:
             timeout=8.0,
         )
 
+    def show_input_method(self) -> dict[str, Any]:
+        """Explicitly show the keyboard; unlike toggle this is idempotent."""
+        return self.rpc.call(INPUT_METHOD, "show", {}, timeout=8.0)
+
+    def hide_input_method(self) -> dict[str, Any]:
+        return self.rpc.call(
+            INPUT_METHOD,
+            "hide",
+            {"reason": "settings"},
+            timeout=8.0,
+        )
+
     def set_input_method_mode(self, mode: str) -> dict[str, Any]:
         return self.rpc.call(
             INPUT_METHOD,

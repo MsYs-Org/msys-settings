@@ -511,6 +511,7 @@ static void panel_primary_event(lv_event_t *event)
     case PANEL_BLUETOOTH: action = "bluetooth_scan"; break;
     case PANEL_AUDIO: action = "audio_output"; break;
     case PANEL_STORAGE: action = "storage_refresh"; break;
+    case PANEL_INPUT: action = "input_show"; break;
     case PANEL_APPS: action = "open_software"; break;
     case PANEL_UPDATES: action = "open_updates"; break;
     case PANEL_DEVELOPER: action = "developer_debug_toggle"; break;
@@ -1069,6 +1070,14 @@ static void software_confirm_event(lv_event_t *event)
     (void)event;
 }
 
+static bool bind_textarea(app_t *app, lv_obj_t *textarea)
+{
+    if(textarea == NULL) return true;
+    if(msys_ui_surface_bind_textarea(app->surface, textarea)) return true;
+    fprintf(stderr, "settings-lvgl: cannot bind textarea input\n");
+    return false;
+}
+
 static int xml_bind(lv_xml_component_scope_t *scope, void *user_data)
 {
     app_t *app = user_data;
@@ -1200,6 +1209,12 @@ static void wire_document(app_t *app)
     app->input_apply = ui_object(app, "input_apply");
     app->input_apply_label = ui_object(app, "input_apply_label");
     app->dynamic_list = ui_object(app, "dynamic_list");
+    if(!bind_textarea(app, app->input_value) ||
+       !bind_textarea(app, app->input_secret) ||
+       !bind_textarea(app, app->appearance_wallpaper_color) ||
+       !bind_textarea(app, app->appearance_accent_color) ||
+       !bind_textarea(app, app->appearance_wallpaper_path))
+        return;
     for(index = 0; index < 4; index++) {
         char name[32];
         (void)snprintf(name, sizeof(name), "choice_%d", index);
@@ -1442,10 +1457,36 @@ static void setting_item_event(lv_event_t *event)
 static void render_setting_items(app_t *app)
 {
     size_t index;
+    char last_category[128] = "";
     if(app->dynamic_list == NULL || !app->items_changed) return;
     lv_obj_clean(app->dynamic_list);
     for(index = 0U; index < app->item_count; index++) {
         setting_item_t *item = &app->items[index];
+        if(strcmp(app->items_panel, "hal") == 0 ||
+           strcmp(app->items_panel, "roles") == 0) {
+            const char *separator = strchr(item->id, '\x1f');
+            size_t length = separator != NULL
+                                ? (size_t)(separator - item->id)
+                                : strlen(item->id);
+            if(length >= sizeof(last_category)) length = sizeof(last_category) - 1U;
+            if(length > 0U &&
+               (strncmp(last_category, item->id, length) != 0 ||
+                last_category[length] != '\0')) {
+                lv_obj_t *header = lv_label_create(app->dynamic_list);
+                memcpy(last_category, item->id, length);
+                last_category[length] = '\0';
+                lv_label_set_text(header, last_category);
+                lv_obj_set_width(header, LV_PCT(100));
+                lv_obj_set_height(header, LV_SIZE_CONTENT);
+                lv_obj_set_style_pad_top(header, 6, LV_PART_MAIN);
+                lv_obj_set_style_pad_bottom(header, 1, LV_PART_MAIN);
+                lv_obj_set_style_text_font(header,
+                                           msys_ui_theme_font(app->theme, 12),
+                                           LV_PART_MAIN);
+                lv_obj_set_style_text_color(header, lv_color_hex(0x526071),
+                                            LV_PART_MAIN);
+            }
+        }
         lv_obj_t *row = lv_obj_create(app->dynamic_list);
         lv_obj_t *text = lv_obj_create(row);
         lv_obj_t *label = lv_label_create(text);
@@ -1540,7 +1581,8 @@ static void update_panel_controls(app_t *app)
         set_choice2_labels(app, "面板正常", "面板右转", "面板倒置", "面板左转");
         break;
     case PANEL_INPUT:
-        choices = true;
+        primary = choices = true;
+        primary_label = "显示触摸键盘";
         set_choice_labels(app, "English", "中文拼音", "数字", "符号");
         break;
     case PANEL_STORAGE:
@@ -1678,6 +1720,22 @@ static void update_visible(app_t *app)
         return;
     }
     if(app->active_panel == PANEL_APPEARANCE) {
+        /* Keep the appearance page as a real, full-workarea scroll surface.
+         * Some LVGL XML builds retain the initial hidden/layout state when a
+         * sibling page is first revealed; explicitly re-apply it here so the
+         * desktop settings page never becomes a blank sibling overlay. */
+        if(app->appearance_page != NULL) {
+            lv_obj_remove_flag(app->appearance_page, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_width(app->appearance_page, LV_PCT(100));
+            lv_obj_set_height(app->appearance_page, LV_PCT(100));
+            lv_obj_set_scroll_dir(app->appearance_page, LV_DIR_VER);
+            lv_obj_set_scrollbar_mode(app->appearance_page,
+                                      LV_SCROLLBAR_MODE_AUTO);
+        }
+        if(app->home_page != NULL)
+            lv_obj_add_flag(app->home_page, LV_OBJ_FLAG_HIDDEN);
+        if(app->detail_page != NULL)
+            lv_obj_add_flag(app->detail_page, LV_OBJ_FLAG_HIDDEN);
         appearance_update_visible(app);
         return;
     }

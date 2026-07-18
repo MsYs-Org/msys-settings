@@ -903,6 +903,14 @@ class SettingsModel:
         result = self._safe(self.client.toggle_input_method)
         return _normalise_input_method_result(result)
 
+    def show_input_method(self) -> OperationResult:
+        result = self._safe(self.client.show_input_method)
+        return _normalise_input_method_result(result)
+
+    def hide_input_method(self) -> OperationResult:
+        result = self._safe(self.client.hide_input_method)
+        return _normalise_input_method_result(result)
+
     def set_input_method_mode(self, mode: object) -> OperationResult:
         if mode not in {"en", "zh", "numeric", "symbols"}:
             return OperationResult(
