@@ -1726,6 +1726,7 @@ static void update_visible(app_t *app)
          * desktop settings page never becomes a blank sibling overlay. */
         if(app->appearance_page != NULL) {
             lv_obj_remove_flag(app->appearance_page, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_pos(app->appearance_page, 0, 0);
             lv_obj_set_width(app->appearance_page, LV_PCT(100));
             lv_obj_set_height(app->appearance_page, LV_PCT(100));
             lv_obj_set_scroll_dir(app->appearance_page, LV_DIR_VER);
